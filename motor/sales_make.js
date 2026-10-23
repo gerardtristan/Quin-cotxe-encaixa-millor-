@@ -1,0 +1,468 @@
+// Motor de les partides web de «Quin encaixa millor?»: sales de fins a 8 jugadors i partida en solitari contra el Rival IA.
+// Funció pura: (estat de la sala + una ordre) -> (nou estat + estat visible per a la pàgina + tasca d'IA).
+// La IA només proposa reptes; els veredictes surten de les fitxes de la base de dades, amb regles fixes.
+
+// ---------------------------------------------------------------- constants
+const MAX_PLAYERS = 8;
+const TURN_MS = 30000; // temps per triar cotxe
+const OPEN_MARGIN_MS = 4000; // el que triga la pàgina a veure la ronda oberta
+const GRACE_MS = 5000; // marge per la latència en enviar el cotxe
+const NEXT_MS = 20000; // temps del veredicte abans de la ronda següent
+const STUCK_MS = 120000; // un repte que es prepara més d'això es pot tornar a demanar
+const TIE_MARGIN = 5;
+const RIVAL = 'ia';
+const RIVAL_ALIAS = 'Rival IA';
+const WEIGHT = { hard: 3, soft: 2 };
+
+// Fitxes: [clau, nom, any inici, any final (0 = encara es fa), carrosseries, tracció (F/R/4), motor (F/M/R), CV mín, CV màx, kg, llargada mm]
+const CARS = [["renault-clio-i-1990","Renault Clio I",1990,1998,"hatch","F","F",54,150,930,3709],["renault-clio-ii-1998","Renault Clio II",1998,2012,"hatch sedan","F","F",61,182,990,3773],["renault-clio-iii-2005","Renault Clio III",2005,2012,"hatch familiar","F","F",75,103,1150,3986],["renault-clio-iv-2012","Renault Clio IV",2012,2020,"hatch familiar","F","F",73,118,980,4062],["renault-clio-v-2018","Renault Clio V",2018,0,"hatch","F","F",75,116,1150,4050],["renault-clio-vi-2025","Renault Clio VI",2025,0,"hatch","F","F",0,0,0,4116],["porsche-911-996-1997","Porsche 911 (996)",1997,2006,"coupe cabrio","R","R",305,450,0,0],["renault-megane-i-1995","Renault Mégane I",1995,2003,"hatch sedan coupe","F","F",71,142,0,0],["renault-maxi-megane","Renault Maxi Mégane",0,0,"coupe","F","F",0,0,960,3952],["renault-megane-ii-2002","Renault Mégane II",2002,2008,"hatch sedan familiar","F","F",86,225,1175,4209],["renault-megane-iii-2008","Renault Mégane III",2008,2016,"hatch coupe","F","F",90,132,1250,4295],["renault-megane-iv-2015","Renault Mégane IV",2015,2024,"hatch sedan familiar","F","F",91,163,1205,4359],["renault-twingo-1992","Renault Twingo",1992,2007,"hatch","F","F",58,76,790,3430],["renault-twingo-ii-2007","Renault Twingo II",2007,2014,"hatch","F","F",75,86,1000,3600],["renault-twingo-iii-2014","Renault Twingo III",2014,2024,"hatch","","F",65,92,900,3590],["renault-twingo-electric-2021","Renault Twingo Electric",2021,2024,"hatch","F","F",42,82,1208,3615],["renault-megane-scenic-scenic-i-1996","Renault Mégane Scénic & Scénic I",1996,2003,"mpv","F","F",65,116,0,4168],["renault-scenic-rx4-2000","Renault Scenic RX4",2000,2003,"mpv","F","F",102,139,1440,4444],["renault-scenic-ii-2003","Renault Scénic II",2003,2009,"mpv","F","F",0,0,0,4259],["renault-scenic-iii-2009","Renault Scénic III",2009,2016,"mpv","F","F",110,132,1350,4343],["renault-scenic-iv-2016","Renault Scénic IV",2016,2022,"mpv","F","F",110,160,1500,4406],["renault-5-first-generation-1972","Renault 5 (first generation)",1972,1985,"hatch","","F",42,160,730,3521],["renault-5-second-generation-1984","Renault 5 (second generation)",1984,1996,"hatch","F","F",43,120,695,3591],["renault-4-1961","Renault 4",1961,1994,"hatch pickup","F","F",23,29,600,3663],["renault-clio-rs-1998","Renault Clio RS",1998,2019,"hatch","F","F",200,220,1021,3810],["renault-first-generation-2004","Renault First generation",2004,2009,"hatch","F","F",175,330,1697,4228],["peugeot-205-1983","Peugeot 205",1983,1999,"hatch cabrio","F","F",50,122,740,3705],["peugeot-206-1998","Peugeot 206",1998,2012,"hatch coupe cabrio","F","F",60,73,950,3835],["peugeot-207-2006","Peugeot 207",2006,2015,"hatch coupe cabrio","F","F",68,120,1243,4045],["peugeot-307-2001","Peugeot 307",2001,2008,"hatch coupe cabrio","F","F",75,140,0,4210],["peugeot-308-i-2007","Peugeot 308 I",2007,2013,"hatch","F","F",92,156,1250,4276],["peugeot-308-ii-2013","Peugeot 308 II",2013,2021,"hatch sedan familiar","F","F",98,150,1060,4253],["peugeot-308-iii-2021","Peugeot 308 III",2021,0,"hatch familiar","F","F",110,150,1300,4367],["peugeot-406-1995","Peugeot 406",1995,2004,"sedan familiar coupe","F","F",90,158,0,4555],["citroen-saxo-1996","Citroën Saxo",1996,2003,"hatch","F","F",26,122,805,3718],["citroen-2cv-1948","Citroën 2CV",1948,1990,"hatch sedan","F","F",23,46,600,3860],["citroen-ds-1955","Citroën DS",1955,1975,"sedan familiar","","F",61,183,1270,4826],["seat-ibiza-mk1-1984","SEAT Ibiza Mk1",1984,1993,"hatch","F","F",56,109,0,3683],["seat-ibiza-mk2-1993","SEAT Ibiza Mk2",1993,2002,"hatch","F","F",54,156,0,3853],["seat-ibiza-mk3-2002","SEAT Ibiza Mk3",2002,2008,"hatch","F","F",64,160,0,0],["seat-ibiza-mk4-2008","SEAT Ibiza Mk4",2008,2017,"hatch familiar","F","F",69,110,974,0],["seat-ibiza-mk5-2017","SEAT Ibiza Mk5",2017,0,"hatch","F","F",75,116,1050,4059],["seat-leon-mk1-1m-1999","SEAT León Mk1 (1M)",1999,2006,"hatch","F","F",75,224,1210,4183],["seat-leon-mk2-1p-2005","SEAT León Mk2 (1P)",2005,2012,"hatch","F","F",102,211,1176,4315],["seat-leon-mk3-2012","SEAT León Mk3",2012,2020,"hatch","F","F",105,280,1193,4228],["seat-leon-mk4-2020","SEAT León Mk4",2020,0,"hatch","F","F",110,150,1286,4368],["seat-altea-xl-seat-altea-freetrack-2006","SEAT Altea XL; Seat Altea Freetrack",2006,2015,"","F","F",90,140,1330,4467],["seat-arona-2017","SEAT Arona",2017,0,"suv","F","F",90,150,1150,4138],["seat-ateca-2016","SEAT Ateca",2016,2026,"suv","F","F",116,190,1300,4381],["seat-panda-seat-marbella-1980","SEAT Panda; SEAT Marbella",1980,1986,"hatch","","",34,142,0,3475],["seat-600-1957","SEAT 600",1957,1973,"sedan","R","R",22,112,590,3322],["seat-127-1972","SEAT 127",1972,1982,"hatch","","",52,52,0,0],["cupra-formentor-2020","Cupra Formentor",2020,0,"suv","F","F",150,310,1359,4450],["cupra-born-2021","Cupra Born",2021,0,"hatch","R","F",95,231,1800,4322],["volkswagen-up-2011","Volkswagen up!",2011,2023,"hatch","F","F",60,83,997,3563],["volkswagen-type-1-beetle-1938","Volkswagen Type 1; \"Beetle\"",1938,2003,"sedan cabrio","R","R",30,54,730,0],["volkswagen-new-beetle-1997","Volkswagen New Beetle",1997,2011,"hatch cabrio","F","F",101,183,0,4129],["ford-puma-2019","Ford Puma",2019,0,"suv","F","F",120,155,1205,4186],["ford-sierra-1982","Ford Sierra",1982,1993,"hatch sedan familiar","R","F",67,227,0,4531],["opel-corsa-a-1982","Opel Corsa A",1982,1993,"hatch sedan","F","F",55,98,735,0],["opel-corsa-b-1993","Opel Corsa B",1993,2000,"hatch sedan familiar","F","F",52,102,0,3729],["opel-corsa-c-2000","Opel Corsa C",2000,2007,"hatch sedan","F","F",65,107,0,3817],["opel-corsa-d-2006","Opel Corsa D",2006,2014,"hatch","F","F",69,101,1100,3999],["opel-corsa-e-2014","Opel Corsa E",2014,2019,"hatch","F","F",69,101,1120,4021],["opel-corsa-f-2019","Opel Corsa F",2019,0,"hatch","F","F",75,131,980,4060],["opel-first-generation-astra-f-1991","Opel First generation (Astra F)",1991,2003,"hatch sedan","F","F",60,150,0,4050],["opel-second-generation-astra-g-1998","Opel Second generation (Astra G)",1998,2009,"hatch sedan familiar","","F",142,507,0,4110],["opel-third-generation-astra-h-2004","Opel Third generation (Astra H)",2004,2014,"hatch coupe","","F",80,240,0,4249],["opel-fourth-generation-astra-j-2009","Opel Fourth generation (Astra J)",2009,2015,"hatch coupe","F","F",95,165,1250,4419],["opel-fifth-generation-astra-k-2015","Opel Fifth generation (Astra K)",2015,2021,"hatch familiar","F","F",105,160,1250,4370],["opel-sixth-generation-astra-l-2021","Opel Sixth generation (Astra L)",2021,0,"hatch familiar","F","F",110,150,1300,4374],["opel-vectra-a-1988","Opel Vectra A",1988,1995,"hatch sedan","F","F",71,170,997,4430],["opel-vectra-b-1995","Opel Vectra B",1995,2002,"hatch sedan familiar","F","F",82,195,1270,4480],["opel-vectra-c-2002","Opel Vectra C",2002,2008,"hatch sedan","F","F",122,256,1393,4596],["opel-insignia-a-2008","Opel Insignia A",2008,2017,"sedan","F","F",131,194,1470,4830],["opel-insignia-b-2017","Opel Insignia B",2017,0,"familiar","F","F",122,209,1440,4897],["opel-2003-insignia-concept-2003","Opel 2003 Insignia Concept",2003,2003,"","R","F",349,349,0,4803],["opel-zafira-1999","Opel Zafira",1999,2005,"mpv","F","F",125,192,1320,4317],["opel-zafira-b-2005","Opel Zafira B",2005,2014,"mpv","F","F",110,150,1500,0],["opel-zafira-c-zafira-tourer-2011","Opel Zafira C/Zafira Tourer",2011,2019,"mpv","F","F",110,170,1565,4660],["opel-kadett-i-1936","Opel Kadett I",1936,1940,"","R","F",23,23,757,0],["opel-kadett-a-1962","Opel Kadett A",1962,1965,"","R","F",0,0,0,0],["opel-kadett-b-1965","Opel Kadett B",1965,1973,"","R","F",0,0,0,0],["opel-kadett-c-1973","Opel Kadett C",1973,1979,"","R","F",0,0,0,0],["opel-kadett-d-1979","Opel Kadett D",1979,1984,"hatch","F","F",50,75,815,3998],["opel-kadett-e-1984","Opel Kadett E",1984,1995,"","R","F",0,0,0,0],["opel-calibra-1989","Opel Calibra",1989,1997,"hatch coupe","F","F",117,207,0,0],["fiat-abarth-500-2008","Fiat Abarth 500",2008,2024,"hatch cabrio","F","F",58,131,900,0],["fiat-500e-2013","Fiat 500e",2013,2019,"hatch","F","F",69,160,900,0],["fiat-500-1957","Fiat 500",1957,1975,"sedan cabrio","R","R",21,38,499,2970],["fiat-tipo-2015","Fiat Tipo",2015,2026,"hatch sedan","F","F",95,143,1270,4532],["fiat-bravo-fiat-brava-1995","Fiat Bravo; Fiat Brava",1995,2001,"hatch","F","F",75,155,1010,4020],["fiat-multipla-1998","Fiat Multipla",1998,2010,"familiar","","",92,120,1300,3994],["toyota-gr-yaris-2020","Toyota GR Yaris",2020,0,"hatch","4","F",261,261,1110,3995],["honda-s2000-ap1-1999","Honda S2000 (AP1)",1999,2003,"cabrio","R","F",125,250,0,0],["honda-s2000-ap2-2003","Honda S2000 (AP2)",2003,2009,"cabrio","R","F",241,250,1299,0],["nissan-gt-r-2007","Nissan GT-R",2007,2025,"coupe","4","F",530,600,1740,0],["nissan-350z-z33-2002","Nissan 350Z (Z33)",2002,2008,"hatch coupe cabrio","R","F",203,400,0,4303],["nissan-370z-z34-2008","Nissan 370Z (Z34)",2008,2020,"coupe cabrio","R","F",328,344,1550,4240],["nissan-leaf-2010","Nissan Leaf",2010,0,"hatch coupe suv","F","F",109,218,1500,0],["mazda-first-generation-2003","Mazda First generation",2003,2014,"hatch sedan","F","F",109,264,0,4540],["mazda-second-generation-2008","Mazda Second generation",2008,2013,"hatch sedan","F","F",75,185,1260,4595],["mazda-third-generation-2013","Mazda Third generation",2013,2018,"hatch sedan","F","F",101,165,1300,4580],["mazda-fourth-generation-2019","Mazda Fourth generation",2019,0,"hatch sedan","F","F",116,186,1250,4660],["mazda-rx-8-2003","Mazda RX-8",2003,2012,"coupe","R","F",231,231,1309,4425],["mitsubishi-evolution-wagon-2005","Mitsubishi Evolution Wagon",2005,2006,"sedan familiar","4","F",0,0,1500,4530],["dacia-sandero-i-2007","Dacia Sandero I",2007,2014,"hatch","F","F",75,88,1025,4091],["dacia-sandero-ii-2012","Dacia Sandero II",2012,2020,"hatch","F","F",73,90,969,4089],["dacia-sandero-iii-2020","Dacia Sandero III",2020,0,"hatch","F","F",67,101,1050,4099],["dacia-logan-i-2004","Dacia Logan I",2004,2012,"sedan familiar","F","F",75,105,1360,4288],["dacia-logan-ii-2012","Dacia Logan II",2012,2020,"sedan familiar","F","F",73,90,1268,4380],["dacia-logan-iii-2020","Dacia Logan III",2020,0,"sedan","F","F",67,95,1100,4396],["bmw-3-series-e30-1982","BMW 3 Series (E30)",1982,1994,"sedan familiar cabrio","R4","F",90,200,1080,0],["bmw-3-series-e36-1990","BMW 3 Series (E36)",1990,2000,"hatch coupe cabrio","R","F",99,286,1175,4433],["bmw-3-series-e46-1997","BMW 3 Series (E46)",1997,2006,"hatch coupe cabrio","R","F",116,343,1285,4470],["bmw-3-series-e90-2004","BMW 3 Series (E90)",2004,2013,"sedan familiar","R","F",116,245,1425,0],["bmw-3-series-f30-2011","BMW 3 Series (F30)",2011,2018,"sedan familiar","R","F",116,258,1385,0],["bmw-3-series-g20-2018","BMW 3 Series (G20)",2018,2026,"sedan familiar","R","F",150,258,1450,4709],["bmw-m3-e30-1986","BMW M3 (E30)",1986,1991,"sedan cabrio","R","F",195,300,1165,4345],["bmw-m3-e36-1992","BMW M3 (E36)",1992,1999,"coupe cabrio","R","F",243,321,0,4430],["bmw-m3-e46-2000","BMW M3 (E46)",2000,2006,"coupe cabrio","R","F",338,449,0,4490],["bmw-e90-92-93-m3-2007","BMW E90/92/93 M3",2007,2013,"sedan coupe","R","F",420,420,1580,0],["bmw-f80-m3-2014","BMW F80 M3",2014,2018,"sedan","R","F",431,450,1600,4671],["bmw-g80-m3-2020","BMW G80 M3",2020,0,"sedan familiar","R","F",340,510,1800,4801],["mercedes-benz-c-class-w203-1999","Mercedes-Benz C-Class (W203)",1999,2007,"hatch sedan familiar","R","F",122,354,0,4526],["mercedes-benz-c-class-w204-2007","Mercedes-Benz C-Class (W204)",2007,2014,"sedan familiar coupe","R","F",120,204,1450,4582],["mercedes-benz-c-class-w205-2014","Mercedes-Benz C-Class (W205)",2014,2021,"sedan familiar","R","F",129,245,1400,4686],["mercedes-benz-g-class-w463-2018","Mercedes-Benz G-Class (W463)",2018,2024,"suv","4","F",286,421,2354,4817],["mercedes-benz-g-class-w465-2024","Mercedes-Benz G-Class (W465)",2024,0,"suv","4","F",20,587,2485,0],["audi-sport-quattro-s1-e2-1985","Audi Sport Quattro S1 E2",1985,1986,"coupe","4","F",480,700,1200,4240],["audi-r8-2006","Audi R8",2006,2024,"coupe cabrio","R","M",430,620,1600,0],["porsche-911-992-2019","Porsche 911 (992)",2019,0,"coupe cabrio","R","R",385,650,1380,0],["porsche-boxster-porsche-cayman-porsche-718-1996","Porsche Boxster; Porsche Cayman; Porsche 718",1996,2025,"coupe cabrio","R","M",256,375,1300,0],["ferrari-f40-1987","Ferrari F40",1987,1996,"","","M",78,710,1254,4430],["ferrari-testarossa-1984","Ferrari Testarossa",1984,1991,"","R","M",370,390,0,4485],["ferrari-f355-1994","Ferrari F355",1994,1999,"cabrio","","M",380,380,0,4249],["ferrari-458-2009","Ferrari 458",2009,2015,"","R","M",566,600,1450,4527],["ferrari-enzo-2002","Ferrari Enzo",2002,2004,"","R","M",122,860,1480,4702],["lamborghini-countach-1974","Lamborghini Countach",1974,1990,"coupe","R","M",350,746,1300,0],["lamborghini-diablo-1990","Lamborghini Diablo",1990,2001,"coupe","R","M",492,610,1576,4460],["lamborghini-murcielago-2001","Lamborghini Murciélago",2001,2010,"coupe cabrio","4","M",580,670,0,4580],["lamborghini-gallardo-2003","Lamborghini Gallardo",2003,2013,"coupe cabrio","4","M",551,570,1500,0],["lamborghini-huracan-2014","Lamborghini Huracán",2014,2024,"coupe cabrio","4","M",579,639,1542,4459],["lamborghini-aventador-2011","Lamborghini Aventador",2011,2022,"coupe cabrio","4","M",700,770,1575,4780],["alfa-romeo-147-2000","Alfa Romeo 147",2000,2010,"hatch","F","F",105,333,1200,0],["alfa-romeo-156-1996","Alfa Romeo 156",1996,2007,"sedan familiar suv","F","F",120,300,1230,4430],["alfa-romeo-giulia-2015","Alfa Romeo Giulia",2015,0,"sedan","R4","F",150,510,1445,4639],["alfa-romeo-mito-2008","Alfa Romeo MiTo",2008,2020,"hatch","F","F",77,140,1080,4063],["lancia-new-stratos-2018","Lancia New Stratos",2018,0,"coupe","R","M",548,558,1247,4181],["volvo-200-series-1974","Volvo 200 Series",1974,1993,"sedan familiar","R","F",82,141,0,0],["land-rover-defender-1990","Land Rover Defender",1990,2016,"pickup","4","F",113,136,1850,0],["land-rover-range-rover-classic-1969","Land Rover Range Rover \"Classic\"",1969,1996,"","4","F",113,157,0,0],["land-rover-range-rover-p38a-1994","Land Rover Range Rover (P38A)",1994,2001,"","4","F",0,0,0,0],["land-rover-range-rover-l322-2001","Land Rover Range Rover (L322)",2001,2012,"","4","F",150,313,1800,0],["land-rover-range-rover-l405-2012","Land Rover Range Rover (L405)",2012,2021,"suv","4","F",150,340,1700,4999],["land-rover-range-rover-l460-2022","Land Rover Range Rover (L460)",2022,0,"suv","4","F",163,525,1900,0],["bugatti-veyron-16-4-2005","Bugatti Veyron 16.4",2005,2015,"coupe cabrio","4","M",1001,1200,1990,4462],["bugatti-chiron-2016","Bugatti Chiron",2016,2024,"coupe","4","M",300,1600,0,4544],["mclaren-f1-gt-1997","McLaren F1 GT",1997,1997,"coupe","R","M",0,0,1120,4928],["smart-fortwo-2014","Smart Fortwo",2014,2019,"hatch cabrio","R","R",60,90,880,2695],["volkswagen-golf-mk6-2008","Volkswagen Golf Mk6",2008,2013,"hatch familiar","F","F",80,160,1217,4199],["volkswagen-golf-mk1-type-17-1974","Volkswagen Golf Mk1 (Type 17)",1974,1983,"hatch pickup","F","F",50,136,790,3705],["volkswagen-golf-mk7-2012","Volkswagen Golf Mk7",2012,2020,"hatch familiar","F","F",86,184,1205,4280],["volkswagen-golf-mk2-19e-1983","Volkswagen Golf Mk2 (19E)",1983,1992,"hatch","F","F",53,160,725,3985],["volkswagen-golf-mk8-2019","Volkswagen Golf Mk8",2019,0,"hatch familiar","F","F",110,150,1255,4284],["volkswagen-golf-mk3-1h-1e-1991","Volkswagen Golf Mk3 (1H/1E)",1991,1998,"hatch familiar","F","F",64,176,0,4074],["volkswagen-golf-mk5-2003","Volkswagen Golf Mk5",2003,2009,"hatch familiar","F","F",75,240,1164,4246],["volkswagen-polo-mk5-6r-6c-61","Volkswagen Polo Mk5 (6R/6C/61)",0,0,"","F","F",75,192,0,0],["volkswagen-polo-mk1-1975","Volkswagen Polo Mk1",1975,1979,"hatch sedan","","",41,60,0,0],["volkswagen-polo-mk1f-1979","Volkswagen Polo Mk1F",1979,1981,"hatch sedan","","",0,0,0,0],["volkswagen-polo-mk6-2017","Volkswagen Polo Mk6",2017,2026,"hatch sedan","F","F",65,116,1355,4067],["volkswagen-polo-mk2-86c-1981","Volkswagen Polo Mk2 (86C)",1981,1994,"hatch familiar","F","F",56,113,736,3655],["volkswagen-polo-mk4-2001","Volkswagen Polo Mk4",2001,2010,"hatch sedan","F","F",60,180,1050,4198],["volkswagen-polo-mk3-6n-6kv-1994","Volkswagen Polo Mk3 (6N/6KV)",1994,2002,"hatch sedan","F","F",50,125,0,0],["volkswagen-passat-b7-2010","Volkswagen Passat (B7)",2010,2015,"sedan familiar","F","F",105,177,1450,4769],["volkswagen-passat-b1-1973","Volkswagen Passat (B1)",1973,1981,"hatch sedan","F","F",50,87,0,4190],["volkswagen-passat-b2-1981","Volkswagen Passat (B2)",1981,1988,"sedan","F","F",75,117,0,4435],["volkswagen-passat-b8-2014","Volkswagen Passat (B8)",2014,2021,"sedan familiar","F","F",120,224,1367,4767],["volkswagen-passat-b3-1988","Volkswagen Passat (B3)",1988,1993,"sedan familiar","","F",72,136,0,4575],["volkswagen-passat-pro-b9-2024","Volkswagen Passat Pro (B9)",2024,0,"sedan","F","F",129,220,1500,5006],["volkswagen-passat-b4-1993","Volkswagen Passat (B4)",1993,1997,"sedan familiar","F","F",75,174,0,0],["volkswagen-passat-b5-1996","Volkswagen Passat (B5)",1996,2005,"sedan familiar","F","F",100,193,1830,0],["ford-focus-europe-1998","Ford Focus (Europe)",1998,2005,"hatch sedan familiar","F","F",0,0,1150,4175],["ford-focus-north-america-1999","Ford Focus (North America)",1999,2007,"hatch sedan","F","F",112,200,0,0],["ford-focus-third-generation-2010","Ford Focus (third generation)",2010,2019,"hatch sedan","F","F",95,158,1270,4358],["ford-focus-fourth-generation-2018","Ford Focus (fourth generation)",2018,2025,"hatch sedan familiar","F","F",101,182,1235,4378],["ford-mondeo-mk4-third-generation-2006","Ford Mondeo Mk4 (third generation)",2006,2014,"sedan","F","F",110,220,1435,4844],["ford-mondeo-fourth-generation-2013","Ford Mondeo; (fourth generation)",2013,2021,"sedan familiar","F","F",120,211,1454,0],["ford-mondeo-mk3-second-generation-2000","Ford Mondeo Mk3 (second generation)",2000,2007,"sedan familiar","F","F",90,209,1364,4731],["ford-mondeo-fifth-generation-2022","Ford Mondeo (fifth generation)",2022,0,"sedan","F","F",140,190,1642,4935],["ford-2005-2009-mustang-s197-2004","Ford 2005–2009 Mustang (S197)",2004,2008,"coupe cabrio","R","F",213,507,0,0],["ford-2010-2014-mustang-s197-ii-2009","Ford 2010–2014 Mustang (S197 II)",2009,2014,"coupe cabrio","R","F",306,549,1450,0],["ford-mustang-1964-1966-1964","Ford Mustang 1964½–1966",1964,1964,"","R","F",122,275,0,0],["ford-mustang-1967-1968-1966","Ford Mustang 1967–1968",1966,1968,"","R","F",122,340,0,0],["ford-mustang-1969-1970-1968","Ford Mustang 1969–1970",1968,1970,"","R","F",157,340,0,0],["ford-mustang-1971-1973-1970","Ford Mustang 1971–1973",1970,1973,"","R","F",99,375,0,0],["ford-mustang-sixth-generation-2014","Ford Mustang (sixth generation)",2014,2023,"coupe cabrio","R","F",169,460,1650,4788],["ford-mustang-second-generation-1973","Ford Mustang (second generation)",1973,1978,"hatch coupe","R","F",89,142,0,0],["ford-mustang-seventh-generation-2023","Ford Mustang (seventh generation)",2023,0,"coupe cabrio","R","F",454,826,0,4810],["ford-mustang-third-generation-1978","Ford Mustang (third generation)",1978,1993,"hatch coupe cabrio","R","F",120,213,0,0],["ford-mustang-mach-e-2020","Ford Mustang Mach-E",2020,0,"coupe suv","R","F",136,371,2000,4739],["ford-mustang-fourth-generation-1993","Ford Mustang (fourth generation)",1993,2004,"coupe cabrio","R","F",152,390,0,0],["toyota-corolla-e140-e150-2006","Toyota Corolla (E140/E150)",2006,2012,"sedan familiar","F","F",90,132,1130,4410],["toyota-corolla-e10-1966","Toyota Corolla (E10)",1966,1970,"sedan familiar coupe","R","F",60,78,0,3845],["toyota-corolla-e160-2012","Toyota Corolla (E160)",2012,2019,"sedan familiar","F","F",90,199,1050,4360],["toyota-corolla-e20-1970","Toyota Corolla (E20)",1970,1974,"sedan coupe","R","F",66,105,730,3990],["toyota-corolla-e170-e180-2013","Toyota Corolla (E170/E180)",2013,2019,"sedan","F","F",90,199,1245,4620],["toyota-corolla-e30-e50-1974","Toyota Corolla (E30/E50)",1974,1981,"sedan coupe","R","F",56,100,955,3995],["toyota-corolla-e210-2018","Toyota Corolla (E210)",2018,0,"hatch sedan","F","F",98,152,1290,4495],["toyota-corolla-e70-1979","Toyota Corolla (E70)",1979,1983,"sedan coupe","R","F",66,95,975,0],["toyota-corolla-e120-e130-2000","Toyota Corolla (E120/E130)",2000,2007,"hatch sedan","F","F",91,200,1070,4390],["toyota-corolla-e80-1983","Toyota Corolla (E80)",1983,1987,"hatch sedan","F","F",70,124,840,4135],["toyota-corolla-e90-1987","Toyota Corolla (E90)",1987,1992,"hatch sedan coupe","F","F",72,137,1200,4195],["toyota-yaris-xp210-mxpa1-mxph1-2020","Toyota Yaris ; (XP210/MXPA1#/MXPH1#)",2020,0,"hatch","F","F",72,125,940,3940],["toyota-corolla-e100-1991","Toyota Corolla (E100)",1991,1998,"hatch sedan coupe","F","F",73,160,1160,4095],["toyota-corolla-e110-1995","Toyota Corolla (E110)",1995,2000,"hatch sedan coupe","F","F",73,127,1095,4120],["toyota-yaris-verso-xp40-1999","Toyota Yaris Verso (XP40)",1999,2005,"familiar","F","F",0,0,1000,0],["toyota-prius-xw30-2009","Toyota Prius (XW30)",2009,2016,"","F","F",99,99,1379,4460],["toyota-prius-xw10-1997","Toyota Prius (XW10)",1997,2001,"sedan","F","F",45,71,1254,4275],["toyota-prius-xw50-2015","Toyota Prius (XW50)",2015,2022,"","F","F",98,99,1450,0],["toyota-prius-xw20-2003","Toyota Prius (XW20)",2003,2012,"","F","F",0,0,1317,4450],["honda-civic-sedan-coupe-2005","Honda Civic sedan/coupé",2005,2010,"sedan coupe","F","F",20,195,1250,4545],["honda-civic-hatchback-2005","Honda Civic hatchback",2005,2011,"hatch","F","F",95,140,1332,4276],["honda-civic-first-generation-sb1-sg-sh-se-vb-1972","Honda Civic; First generation (SB1/SG/SH/SE/VB)",1972,1979,"sedan","F","F",51,76,600,0],["honda-civic-sedan-coupe-2011","Honda Civic sedan/coupe",2011,2015,"sedan coupe","F","F",99,150,1177,4557],["honda-civic-hatchback-tourer-2011","Honda Civic hatchback/Tourer",2011,2017,"hatch familiar","F","F",99,310,1251,4369],["honda-civic-second-generation-1979","Honda Civic; Second generation",1979,1983,"hatch sedan","F","F",56,70,785,3870],["honda-civic-tenth-generation-2016","Honda Civic; Tenth generation",2016,2021,"coupe","F","F",120,320,1242,4492],["honda-civic-third-generation-1983","Honda Civic; Third generation",1983,1987,"hatch coupe","F","F",61,100,0,0],["honda-civic-eleventh-generation-2021","Honda Civic (eleventh generation)",2021,0,"sedan","F","F",126,320,1350,0],["honda-civic-fourth-generation-1987","Honda Civic; Fourth generation",1987,1991,"hatch sedan","F","F",82,150,0,0],["honda-nsx-nc1-2016","Honda NSX (NC1)",2016,2021,"coupe","4","M",507,507,1800,4470],["honda-civic-fifth-generation-1991","Honda Civic; Fifth generation",1991,1995,"hatch coupe","F","F",75,160,925,0],["honda-fit-second-generation-2007","Honda Fit (second generation)",2007,2014,"hatch","F","F",88,99,990,0],["honda-civic-sixth-generation-1995","Honda Civic; Sixth generation",1995,2000,"hatch coupe","F","F",91,170,1185,4450],["honda-civic-seventh-generation-eu-es-ep-em-2000","Honda Civic; Seventh generation; (EU/ES/EP/EM)",2000,2005,"coupe","F","F",83,140,1245,4437],["honda-nsx-na1-2-1990","Honda NSX (NA1/2)",1990,2005,"coupe cabrio","R","M",132,507,0,4405],["honda-fit-first-generation-2001","Honda Fit (first generation)",2001,2008,"hatch","F","F",81,84,1100,3850],["mazda-mx-5-nc-2005","Mazda MX-5 (NC)",2005,2015,"cabrio","R","F",126,160,1110,4000],["mazda-mx-5-na-1989","Mazda MX-5 (NA)",1989,1997,"cabrio","R","F",90,135,0,3950],["mazda-mx-5-12r","Mazda MX-5 12R",0,0,"cabrio","R","F",131,200,1050,3945],["mazda-mx-5-nb-1998","Mazda MX-5 (NB)",1998,2005,"coupe cabrio","R","F",125,181,1065,0],["bmw-1-series-2004","BMW 1 Series",2004,2013,"hatch coupe cabrio","R","F",116,184,1245,0],["bmw-1-series-second-generation-2011","BMW 1 Series; (Second generation)",2011,2019,"hatch","R","F",102,190,1360,4324],["bmw-1-series-third-generation-2019","BMW 1 Series; (third generation)",2019,2024,"hatch","F","F",109,190,1290,4319],["bmw-x5-2006","BMW X5",2006,2013,"suv","","",211,381,2150,4854],["bmw-x5-1999","BMW X5",1999,2006,"","4","F",218,360,0,0],["bmw-x5-2013","BMW X5",2013,2018,"suv","R","F",218,381,2105,4886],["bmw-x5-2018","BMW X5",2018,2026,"suv","4","F",231,400,2060,4935],["chevrolet-corvette-c6-2004","Chevrolet Corvette (C6)",2004,2013,"coupe","R","F",436,647,1501,0],["chevrolet-corvette-c1-1953","Chevrolet Corvette (C1)",1953,1962,"cabrio","R","F",157,345,0,0],["chevrolet-corvette-c7-2013","Chevrolet Corvette (C7)",2013,2017,"coupe cabrio","R","F",466,659,1518,0],["chevrolet-corvette-c2-1962","Chevrolet Corvette (C2)",1962,1967,"coupe cabrio","R","F",253,441,0,0],["chevrolet-corvette-c8-2020","Chevrolet Corvette (C8)",2020,0,"coupe cabrio","R","M",481,481,1700,0],["chevrolet-corvette-c3-1967","Chevrolet Corvette (C3)",1967,1982,"coupe cabrio","R","F",183,436,0,0],["chevrolet-camaro-fifth-generation-2009","Chevrolet Camaro (fifth generation)",2009,2015,"coupe cabrio","R","F",405,432,1800,0],["chevrolet-corvette-c4-1983","Chevrolet Corvette (C4)",1983,1996,"cabrio","R","F",233,411,0,0],["chevrolet-camaro-sixth-generation-2015","Chevrolet Camaro (sixth generation)",2015,2023,"coupe cabrio","R","F",275,453,1600,0],["chevrolet-corvette-c5-1996","Chevrolet Corvette (C5)",1996,2004,"coupe cabrio","R","F",20,411,1472,0],["chevrolet-camaro-first-generation-1966","Chevrolet Camaro (first generation)",1966,1969,"cabrio","R","F",157,431,0,0],["chevrolet-camaro-second-generation-1970","Chevrolet Camaro; (second generation)",1970,1981,"coupe","R","F",147,365,0,0],["chevrolet-camaro-third-generation-1981","Chevrolet Camaro (third generation)",1981,1992,"cabrio","R","F",108,233,1400,4877],["chevrolet-camaro-fourth-generation-1992","Chevrolet Camaro (fourth generation)",1992,2002,"coupe","R","F",203,335,0,0],["dodge-viper-sr-i-1991","Dodge Viper (SR I)",1991,1995,"cabrio","R","F",406,406,1490,4450],["dodge-viper-sr-ii-1995","Dodge Viper (SR II)",1995,2002,"coupe cabrio","","",421,466,1505,4450],["dodge-viper-zb-i-2002","Dodge Viper (ZB I)",2002,2006,"coupe cabrio","R","F",507,517,1556,4460],["volkswagen-golf-mk4-1j-1997","Volkswagen Golf Mk4 (1J)",1997,2006,"hatch","F","F",75,179,0,4148],["ford-focus-second-generation-europe-2004","Ford Focus (second generation, Europe)",2004,2010,"hatch sedan","F","F",91,305,1229,4340],["toyota-vitz-first-generation-xp10-1999","Toyota Vitz (First generation (XP10))",1999,2004,"hatch","F","F",71,150,810,3615],["toyota-vitz-second-generation-xp90-2005","Toyota Vitz (Second generation (XP90))",2005,2010,"hatch","F","F",90,132,980,3750],["toyota-vitz-third-generation-xp130-2010","Toyota Vitz (Third generation (XP130))",2010,2019,"hatch","F","F",69,110,970,0],["dodge-viper-srt-10-zb-ii-2007","Dodge Viper SRT-10 (ZB II)",2007,2010,"coupe cabrio","","",608,649,0,0],["dodge-viper-vx-i-2012","Dodge Viper (VX I)",2012,2017,"coupe","R","F",649,654,0,0],["mercedes-benz-w201-190-190-e-190-d-1983","Mercedes-Benz W201; (190, 190 E, 190 D)",1983,1993,"sedan","R","F",75,234,1300,4420],["audi-a3-first-generation-1996","Audi A3 (First generation)",1996,2003,"hatch","F","F",100,225,0,4152],["audi-a3-second-generation-2003","Audi A3 (Second generation)",2003,2013,"hatch","F","F",105,170,1300,4215],["audi-a3-third-generation-2012","Audi A3 (Third generation)",2012,2020,"hatch cabrio","F","F",105,184,1150,4423],["audi-a3-fourth-generation-2020","Audi A3 (Fourth generation)",2020,0,"hatch sedan","F","F",110,150,1250,4337],["subaru-impreza-first-generation-1992","Subaru Impreza (First generation)",1992,2000,"sedan familiar coupe","F","F",218,280,1220,4340],["subaru-impreza-second-generation-2000","Subaru Impreza (Second generation)",2000,2007,"sedan familiar","F","F",320,320,1360,4415],["subaru-impreza-third-generation-2007","Subaru Impreza (Third generation)",2007,2011,"hatch sedan","F","F",107,300,1394,4580],["subaru-impreza-fourth-generation-2011","Subaru Impreza (Fourth generation)",2011,2016,"hatch sedan","F","F",114,300,1320,4580],["subaru-impreza-fifth-generation-2016","Subaru Impreza (Fifth generation)",2016,2023,"hatch sedan","F","F",114,156,1386,4625],["subaru-impreza-sixth-generation-2023","Subaru Impreza (Sixth generation)",2023,0,"hatch","F","F",154,185,1350,0],["hyundai-i10-first-generation-2007","Hyundai i10 (First generation)",2007,2015,"hatch","F","F",67,86,925,3565],["hyundai-i10-second-generation-2013","Hyundai i10 (Second generation)",2013,2022,"hatch sedan","F","F",67,87,933,3645],["hyundai-i10-third-generation-2019","Hyundai i10 (Third generation)",2019,0,"hatch sedan","F","F",67,84,921,0],["kia-sportage-first-generation-1993","Kia Sportage (First generation)",1993,2005,"cabrio suv","R","F",83,132,0,4030],["kia-sportage-second-generation-2004","Kia Sportage (Second generation)",2004,2010,"cabrio suv","F","F",173,173,1480,0],["kia-sportage-third-generation-2010","Kia Sportage (Third generation)",2010,2015,"cabrio suv","F","F",116,184,1410,0],["kia-sportage-fourth-generation-2015","Kia Sportage (Fourth generation)",2015,2021,"cabrio suv","F","F",116,185,1465,4480],["kia-sportage-fifth-generation-2021","Kia Sportage (Fifth generation)",2021,0,"cabrio suv","F","F",136,179,1525,4515],["kia-ceed-first-generation-2006","Kia Ceed (First generation)",2006,2012,"hatch","F","F",90,128,1263,4240],["kia-ceed-second-generation-2012","Kia Ceed (Second generation)",2012,2018,"hatch","F","F",90,136,1250,4310],["kia-ceed-third-generation-2018","Kia Ceed (Third generation)",2018,2026,"hatch familiar","F","F",99,160,1250,4310],["audi-tt-first-generation-8n-1998","Audi TT (First generation (8N))",1998,2006,"coupe","F","F",180,300,0,4041],["audi-tt-second-generation-8j-2006","Audi TT (Second generation (8J))",2006,2014,"coupe","F","F",160,360,1260,4178],["audi-tt-third-generation-fv-8s-2014","Audi TT (Third generation (FV/8S))",2014,2023,"coupe","F","F",179,400,1230,4191],["subaru-wrx-first-generation-2014","Subaru WRX (First generation)",2014,2021,"sedan","4","F",272,353,1595,0],["subaru-wrx-second-generation-2021","Subaru WRX (Second generation)",2021,0,"sedan","4","F",275,679,1600,0],["ford-mondeo-ford-contour-mercury-mystique-1994","Ford Mondeo (Ford Contour; Mercury Mystique)",1994,2000,"sedan","F","F",127,203,0,0],["ford-mustang-2012-boss-302-2011","Ford Mustang (2012 Boss 302)",2011,2013,"coupe","R","F",305,662,1550,0],["toyota-yaris-cross-xp210-2020","Toyota Yaris Cross (XP210)",2020,0,"suv","F","F",92,125,1110,0],["toyota-yaris-cross-ac200-2023","Toyota Yaris Cross (AC200)",2023,0,"suv","F","F",80,111,1175,4310],["toyota-prius-fifth-generation-2022","Toyota Prius (Fifth generation)",2022,0,"sedan","F","F",98,98,1350,4600],["seat-cordoba-first-generation-6k-1993","SEAT Córdoba (First generation (6K))",1993,2002,"sedan familiar coupe","","",60,150,990,4109],["seat-cordoba-second-generation-6l-2002","SEAT Córdoba (Second generation (6L))",2002,2008,"sedan","","",64,115,1260,4280],["peugeot-306-phase-1-1993","Peugeot 306 (Phase 1)",1993,1997,"hatch sedan familiar","F","F",157,169,0,0],["peugeot-306-phase-2-n5-1997","Peugeot 306 (Phase 2 (N5))",1997,1999,"hatch sedan familiar","F","F",0,0,0,0],["peugeot-306-phase-3-1999","Peugeot 306 (Phase 3)",1999,2002,"hatch sedan familiar","F","F",134,135,0,0],["skoda-fabia-mk1-1999","Škoda Fabia Mk1",1999,2009,"hatch sedan familiar","","",60,120,0,3960],["skoda-fabia-mk2-2007","Škoda Fabia Mk2",2007,2014,"hatch familiar","F","F",60,105,1030,4000],["skoda-fabia-mk3-nj-2014","Škoda Fabia Mk3 (NJ)",2014,2022,"hatch familiar","F","F",60,110,1055,3992],["skoda-fabia-mk4-2021","Škoda Fabia Mk4",2021,0,"hatch","","",65,110,1100,4107],["fiat-punto-first-generation-1993","Fiat Punto (First generation)",1993,1999,"hatch","F","F",57,133,830,3760],["fiat-punto-second-generation-1999","Fiat Punto (Second generation)",1999,2010,"hatch","F","F",60,101,860,3800],["fiat-punto-third-generation-2004","Fiat Punto (Third generation)",2004,2018,"hatch","F","F",69,95,1015,4030],["toyota-supra-first-generation-1978","Toyota Supra (First generation)",1978,1981,"coupe cabrio","R","F",111,140,1270,4615],["toyota-supra-second-generation-1981","Toyota Supra (Second generation)",1981,1985,"coupe cabrio","R","F",140,180,1361,4661],["toyota-supra-third-generation-1986","Toyota Supra (Third generation)",1986,1993,"coupe cabrio","R","F",203,280,1460,4620],["toyota-supra-fourth-generation-1993","Toyota Supra (Fourth generation)",1993,2002,"coupe cabrio","R","F",223,330,1410,4520],["renault-twingo-renault-twin-z-2013","Renault Twingo (Renault Twin'Z)",2013,2013,"hatch","R","R",67,324,0,3590],["renault-captur-first-generation-2013","Renault Captur (First generation)",2013,2019,"suv","F","F",90,120,1150,4122],["renault-captur-first-generation-global-access-2017","Renault Captur (First generation (Global Access))",2017,2023,"suv","F","F",90,150,1200,4333],["renault-captur-second-generation-2019","Renault Captur (Second generation)",2019,0,"suv","F","F",91,140,1250,4228],["ford-escort-first-generation-1967","Ford Escort (First generation)",1967,1975,"sedan familiar","R","F",44,117,0,0],["ford-escort-second-generation-1974","Ford Escort (Second generation)",1974,1980,"sedan familiar","R","F",57,253,0,0],["ford-escort-third-generation-1980","Ford Escort (Third generation)",1980,1986,"familiar cabrio","F","F",55,304,0,3907],["ford-escort-fourth-generation-1986","Ford Escort (Fourth generation)",1986,1992,"familiar cabrio","F","F",51,105,0,4022],["ford-escort-fifth-generation-1990","Ford Escort (Fifth generation)",1990,1997,"sedan familiar","F","F",70,150,900,4036],["ford-escort-sixth-generation-1995","Ford Escort (Sixth generation)",1995,2002,"sedan familiar","F","F",61,132,989,4136],["renault-laguna-first-generation-x56-1994","Renault Laguna (First generation (X56))",1994,2000,"hatch familiar","F","F",95,167,1230,4508],["renault-laguna-second-generation-x74-2000","Renault Laguna (Second generation (X74))",2000,2007,"hatch familiar","F","F",105,204,1570,4576],["renault-laguna-third-generation-x91-2005","Renault Laguna (Third generation (X91))",2005,2015,"hatch familiar coupe","F","F",110,173,1560,4695],["renault-megane-rs-second-generation-2010","Renault Mégane RS (Second generation)",2010,2016,"hatch","F","F",220,273,1280,4299],["renault-megane-rs-third-generation-2017","Renault Mégane RS (Third generation)",2017,2023,"hatch","F","F",205,300,1430,4372],["peugeot-208-first-generation-2012","Peugeot 208 (First generation)",2012,2019,"hatch","F","F",68,110,975,3962],["peugeot-208-second-generation-2019","Peugeot 208 (Second generation)",2019,0,"hatch","F","F",75,136,1050,4055],["fiat-uno-first-generation-type-146-1983","Fiat Uno (First generation (Type 146))",1983,1995,"hatch","F","F",45,105,711,0],["fiat-uno-second-generation-type-327-2010","Fiat Uno (Second generation (Type 327))",2010,2021,"hatch","F","F",75,88,0,3770],["toyota-celica-first-generation-1970","Toyota Celica (First generation)",1970,1977,"coupe","R","F",97,136,1186,0],["toyota-celica-second-generation-1977","Toyota Celica (Second generation)",1977,1981,"coupe","R","F",90,140,1055,4410],["toyota-celica-third-generation-1981","Toyota Celica (Third generation)",1981,1985,"coupe","R","F",91,324,970,4435],["toyota-celica-fourth-generation-1985","Toyota Celica (Fourth generation)",1985,1989,"coupe","F","F",98,193,0,4410],["toyota-celica-fifth-generation-1989","Toyota Celica (Fifth generation)",1989,1993,"coupe cabrio","F","F",126,224,0,4470],["toyota-celica-sixth-generation-1993","Toyota Celica (Sixth generation)",1993,1999,"coupe","F","F",112,254,1250,4435],["toyota-celica-seventh-generation-1999","Toyota Celica (Seventh generation)",1999,2006,"coupe","F","F",142,406,1180,4335],["peugeot-2008-first-generation-2013","Peugeot 2008 (First generation)",2013,2023,"suv","F","F",82,131,1045,4158],["peugeot-2008-second-generation-2019","Peugeot 2008 (Second generation)",2019,0,"suv","F","F",77,136,1250,4300],["toyota-mr2-w10-1984","Toyota MR2 (W10)",1984,1989,"coupe","R","M",83,760,0,0],["toyota-mr2-w20-1989","Toyota MR2 (W20)",1989,1999,"coupe","R","M",137,507,0,4170],["toyota-mr2-w30-1999","Toyota MR2 (W30)",1999,2007,"cabrio","R","M",140,192,0,0],["peugeot-3008-first-generation-2008","Peugeot 3008 (First generation)",2008,2016,"suv","F","F",111,163,1450,4365],["peugeot-3008-second-generation-2016","Peugeot 3008 (Second generation)",2016,2024,"suv","F","F",120,181,1300,4447],["peugeot-3008-third-generation-2024","Peugeot 3008 (Third generation)",2024,0,"suv","F","F",21,326,0,4540],["peugeot-508-first-generation-2011","Peugeot 508 (First generation)",2011,2018,"sedan familiar","F","F",114,181,1390,4792],["peugeot-508-second-generation-2018","Peugeot 508 (Second generation)",2018,2025,"sedan familiar","F","F",131,224,1495,4750],["honda-integra-series-av-da1-da4-1985","Honda Integra (Series AV, DA1-DA4)",1985,1989,"sedan coupe","F","F",85,135,0,4285],["honda-integra-series-da5-da9-db1-db2-1989","Honda Integra (Series DA5-DA9, DB1-DB2)",1989,1993,"coupe","F","F",140,170,0,4390],["honda-integra-series-db6-db9-dc1-dc2-dc4-1993","Honda Integra (Series DB6-DB9, DC1-DC2, DC4)",1993,2001,"coupe","F4","F",122,198,0,4380],["honda-integra-series-dc5-2001","Honda Integra (Series DC5)",2001,2006,"coupe","F","F",220,220,0,4397],["citroen-c3-first-generation-2002","Citroën C3 (First generation)",2002,2010,"hatch cabrio","F","F",69,110,953,3850],["citroen-c3-second-generation-2009","Citroën C3 (Second generation)",2009,2016,"hatch","F","F",60,110,948,3941],["citroen-c3-third-generation-europe-2016","Citroën C3 (Third generation (Europe))",2016,2024,"hatch","F","F",75,120,1080,3996],["citroen-c3-third-generation-india-and-latin-america-2022","Citroën C3 (Third generation; (India and Latin America))",2022,0,"hatch","F","F",57,110,0,3981],["citroen-c3-fourth-generation-2024","Citroën C3 (Fourth generation)",2024,0,"hatch","F","F",100,113,1151,4015],["nissan-patrol-first-generation-1951","Nissan Patrol (First generation)",1951,1960,"familiar pickup","4","F",75,145,1500,3650],["nissan-patrol-second-generation-1960","Nissan Patrol (Second generation)",1960,1980,"familiar","4","F",0,0,0,0],["nissan-patrol-third-generation-1980","Nissan Patrol (Third generation)",1980,1989,"familiar","R","F",95,120,0,4105],["nissan-patrol-third-generation-1986","Nissan Patrol (Third generation)",1986,2002,"familiar pickup","R","F",0,0,0,4150],["nissan-patrol-fourth-generation-1987","Nissan Patrol (Fourth generation)",1987,1997,"familiar","R","F",116,184,0,4340],["nissan-patrol-fifth-generation-1997","Nissan Patrol (Fifth generation)",1997,2024,"familiar pickup","R","F",1014,1014,2473,4440],["nissan-patrol-sixth-generation-2010","Nissan Patrol (Sixth generation)",2010,2026,"suv","R","F",28,434,2695,5165],["nissan-patrol-seventh-generation-2024","Nissan Patrol (Seventh generation)",2024,0,"suv","4","F",320,502,2680,5350],["citroen-c4-first-generation-2004","Citroën C4 (First generation)",2004,2010,"hatch sedan coupe","F","F",90,150,1250,4274],["citroen-c4-second-generation-2010","Citroën C4 (Second generation)",2010,2018,"hatch sedan","F","F",82,150,1050,4329],["citroen-c4-third-generation-2020","Citroën C4 (Third generation)",2020,0,"sedan coupe suv","F","F",110,131,1300,4360],["nissan-skyline-gt-r-first-generation-c10-1969","Nissan Skyline GT-R (First generation (C10))",1969,1972,"sedan coupe","R","F",162,162,1100,4400],["nissan-skyline-gt-r-second-generation-kpgc110-1973","Nissan Skyline GT-R (Second generation (KPGC110))",1973,1973,"coupe","R","F",0,0,1145,4460],["nissan-skyline-gt-r-third-generation-r32-1989","Nissan Skyline GT-R (Third generation (R32))",1989,1994,"coupe","4","F",280,600,1430,4545],["nissan-skyline-gt-r-fourth-generation-r33-1995","Nissan Skyline GT-R (Fourth generation (R33))",1995,1998,"sedan coupe","4","F",305,405,1530,4675],["nissan-skyline-gt-r-fifth-generation-r34-1999","Nissan Skyline GT-R (Fifth generation (R34))",1999,2002,"coupe","4","F",280,600,1560,4600],["citroen-xsara-1997","Citroën Xsara",1997,2006,"hatch","F","F",68,137,0,0],["mazda-rx-7-first-generation-sa-fb-1978","Mazda RX-7 (First generation (SA/FB))",1978,1985,"coupe","R","F",101,165,0,4285],["mazda-rx-7-second-generation-fc-1985","Mazda RX-7 (Second generation (FC))",1985,1992,"coupe cabrio","R","F",148,215,1223,0],["mazda-rx-7-third-generation-fd-1991","Mazda RX-7 (Third generation (FD))",1991,2002,"coupe","R","F",255,280,1218,4285],["citroen-berlingo-first-generation-1996","Citroën Berlingo (First generation)",1996,2008,"","F","F",71,92,0,4135],["citroen-berlingo-second-generation-2008","Citroën Berlingo (Second generation)",2008,2018,"","F","F",75,120,1350,0],["citroen-berlingo-third-generation-2018","Citroën Berlingo (Third generation)",2018,0,"","F","F",102,131,1400,0],["mini-hatch-first-generation-2001","Mini Hatch (First generation)",2001,2006,"hatch cabrio","F","F",218,218,0,0],["mini-hatch-second-generation-2006","Mini Hatch (Second generation)",2006,2013,"hatch cabrio","F","F",75,211,0,0],["mini-hatch-third-generation-2013","Mini Hatch (Third generation)",2013,2024,"hatch","F","F",75,306,1160,3821],["mini-hatch-fourth-generation-2023","Mini Hatch (Fourth generation)",2023,0,"hatch","F","F",102,258,1540,3858],["mini-hatch-fourth-generation-2024","Mini Hatch (Fourth generation)",2024,0,"hatch","F","F",156,204,0,3876],["seat-toledo-mk1-1l-1991","SEAT Toledo (Mk1 (1L))",1991,1999,"","F","F",68,133,985,4320],["seat-toledo-mk2-1m-1998","SEAT Toledo (Mk2 (1M))",1998,2004,"sedan","F","F",100,170,0,4439],["seat-toledo-mk3-5p-2004","SEAT Toledo (Mk3 (5P))",2004,2009,"hatch","F","F",105,173,0,4460],["seat-toledo-mk4-kg-2012","SEAT Toledo (Mk4 (KG))",2012,2019,"","F","F",86,125,1140,4482],["porsche-911-porsche-turbo-930-1975","Porsche 911 (Porsche Turbo (930))",1975,1977,"coupe cabrio","R","R",241,330,0,4291],["porsche-911-porsche-964-1989","Porsche 911 (Porsche 964)",1989,1993,"coupe cabrio","R","R",260,381,0,4275],["porsche-911-porsche-993-1994","Porsche 911 (Porsche 993)",1994,1998,"coupe cabrio","R","R",272,450,0,0],["ferrari-testarossa-512-tr-1991","Ferrari Testarossa (512 TR)",1991,1994,"","R","M",428,428,0,4480],["ferrari-testarossa-f512-m-1994","Ferrari Testarossa (F512 M)",1994,1996,"","R","M",312,760,1631,4480],["volkswagen-tiguan-first-generation-2007","Volkswagen Tiguan (First generation)",2007,2018,"suv","F","F",110,177,1500,4432],["volkswagen-tiguan-second-generation-2016","Volkswagen Tiguan (Second generation)",2016,2024,"coupe suv","F","F",116,190,1450,4509],["volkswagen-tiguan-third-generation-2024","Volkswagen Tiguan (Third generation)",2024,0,"suv","F","F",0,0,0,4551],["volkswagen-touran-first-generation-2002","Volkswagen Touran (First generation)",2002,2016,"mpv","F","F",105,150,1450,4389],["volkswagen-touran-second-generation-2015","Volkswagen Touran (Second generation)",2015,2026,"mpv","F","F",110,179,1450,4527],["volkswagen-scirocco-first-generation-typ-53-1974","Volkswagen Scirocco (First generation (Typ 53))",1974,1981,"hatch","F","F",70,110,875,3880],["volkswagen-scirocco-second-generation-1981","Volkswagen Scirocco (Second generation)",1981,1992,"hatch","F","F",75,91,0,4210],["volkswagen-scirocco-third-generation-2008","Volkswagen Scirocco (Third generation)",2008,2017,"hatch","F","F",122,265,1450,4256],["skoda-octavia-mk1-1996","Škoda Octavia Mk1",1996,2010,"familiar","","",68,180,0,4511],["skoda-octavia-mk2-2004","Škoda Octavia Mk2",2004,2013,"familiar","","",102,160,1265,4569],["skoda-octavia-mk3-2012","Škoda Octavia Mk3",2012,2019,"familiar","","",105,220,1150,4659],["skoda-octavia-mk4-2019","Škoda Octavia Mk4",2019,0,"familiar","","",110,200,1226,4689],["lancia-delta-first-generation-1979","Lancia Delta (First generation)",1979,1994,"hatch","F","F",75,185,955,3885],["lancia-delta-hf-integrale-evoluzione","Lancia Delta HF integrale \"Evoluzione\"",0,0,"hatch","4","F",75,215,0,3898],["lancia-delta-lancia-hyena-1992","Lancia Delta (Lancia Hyena)",1992,1996,"coupe","4","F",250,250,0,0],["lancia-delta-second-generation-1993","Lancia Delta (Second generation)",1993,1999,"hatch","F","F",71,193,1130,4011],["lancia-delta-third-generation-2008","Lancia Delta (Third generation)",2008,2014,"hatch","F","F",105,200,1505,4520],["skoda-superb-first-generation-b5-2001","Škoda Superb (First generation B5)",2001,2008,"sedan","F","F",101,193,0,4803],["skoda-superb-second-generation-b6-2008","Škoda Superb (Second generation B6)",2008,2015,"sedan familiar","F","F",105,170,1500,4838],["skoda-superb-third-generation-b8-2015","Škoda Superb (Third generation B8)",2015,2024,"familiar","F","F",120,272,1450,4861],["skoda-superb-fourth-generation-b9-2023","Škoda Superb (Fourth generation B9)",2023,0,"familiar","F","F",115,265,0,4904],["ford-fiesta-first-generation-1976","Ford Fiesta (First generation)",1976,1983,"hatch","F","F",0,0,715,0],["ford-fiesta-second-generation-1983","Ford Fiesta (Second generation)",1983,1989,"hatch","F","F",97,127,0,0],["ford-fiesta-third-generation-1989","Ford Fiesta (Third generation)",1989,1997,"hatch","F","F",104,130,0,0],["ford-fiesta-fourth-generation-1995","Ford Fiesta (Fourth generation)",1995,2002,"hatch sedan","F","F",0,0,0,0],["ford-fiesta-fifth-generation-2002","Ford Fiesta (Fifth generation)",2002,2008,"hatch sedan","F","F",0,0,0,0],["ford-fiesta-sixth-generation-2008","Ford Fiesta (Sixth generation)",2008,2019,"hatch sedan","F","F",60,120,1000,0],["ford-fiesta-seventh-generation-2017","Ford Fiesta (Seventh generation)",2017,2023,"hatch","F","F",71,140,1187,4069],["ford-ka-first-generation-1996","Ford Ka (First generation)",1996,2008,"hatch cabrio","F","F",81,95,820,0],["ford-ka-second-generation-europe-2008","Ford Ka (Second generation (Europe))",2008,2016,"hatch","F","F",69,75,870,3620],["ford-ka-second-generation-latin-america-2008","Ford Ka (Second generation (Latin America))",2008,2013,"hatch","F","F",71,112,905,3836],["ford-ka-third-generation-2014","Ford Ka (Third generation)",2014,2021,"hatch sedan","F","F",69,86,1007,3929],["ford-kuga-first-generation-2008","Ford Kuga (First generation)",2008,2013,"suv","F","F",140,163,1613,4443],["ford-kuga-second-generation-2012","Ford Kuga (Second generation)",2012,2019,"suv","F","F",120,179,1580,4524],["ford-kuga-third-generation-2019","Ford Kuga (Third generation)",2019,2025,"suv","F","F",120,190,1716,4541],["dmc-delorean-1981","DMC DeLorean",1981,1982,"coupe","R","R",132,156,1233,4267],["fiat-panda-first-generation-1980","Fiat Panda (First generation)",1980,2003,"hatch","F","F",34,51,715,3380],["fiat-panda-second-generation-2003","Fiat Panda (Second generation)",2003,2012,"hatch","F","F",69,75,840,3538],["fiat-panda-third-generation-2011","Fiat Panda (Third generation)",2011,0,"hatch","F","F",69,95,940,0],["toyota-rav4-first-generation-1994","Toyota RAV4 (First generation)",1994,2000,"suv","F","F",121,179,0,0],["toyota-rav4-second-generation-2000","Toyota RAV4 (Second generation)",2000,2005,"suv","F","F",125,163,1445,0],["toyota-rav4-third-generation-2005","Toyota RAV4 (Third generation)",2005,2012,"suv","F","F",150,158,1470,0],["toyota-rav4-fourth-generation-2012","Toyota RAV4 (Fourth generation)",2012,2018,"suv","F","F",124,158,1550,0],["toyota-rav4-fifth-generation-2018","Toyota RAV4 (Fifth generation)",2018,2025,"suv","F","F",175,185,1530,0],["toyota-rav4-sixth-generation-2025","Toyota RAV4 (Sixth generation)",2025,0,"suv","F","F",150,320,1710,0],["toyota-86-first-generation-2012","Toyota 86 (First generation)",2012,2021,"coupe","R","F",200,200,1190,4240],["toyota-86-second-generation-2021","Toyota 86 (Second generation)",2021,0,"coupe","R","F",109,204,1270,4265],["toyota-land-cruiser-bj-and-fj-1951","Toyota Land Cruiser (BJ and FJ)",1951,1955,"","4","F",85,125,1425,3793],["toyota-land-cruiser-j20-1955","Toyota Land Cruiser (J20)",1955,1960,"pickup","4","F",135,135,0,0],["toyota-land-cruiser-j40-1960","Toyota Land Cruiser (J40)",1960,1985,"pickup","4","F",79,126,0,0],["toyota-land-cruiser-j70-1984","Toyota Land Cruiser (J70)",1984,0,"pickup","4","F",0,0,0,4060],["toyota-land-cruiser-j50-1967","Toyota Land Cruiser (J50)",1967,1980,"suv","4","F",0,0,0,4675],["toyota-land-cruiser-j60-1980","Toyota Land Cruiser (J60)",1980,1992,"suv","4","F",157,157,0,4750],["toyota-land-cruiser-j80-1990","Toyota Land Cruiser (J80)",1990,2007,"suv","4","F",131,215,2084,4780],["toyota-land-cruiser-j100-1998","Toyota Land Cruiser (J100)",1998,2007,"suv","4","F",131,245,2320,4890],["toyota-land-cruiser-j200-2007","Toyota Land Cruiser (J200)",2007,2021,"suv","4","F",177,272,2740,4990],["toyota-land-cruiser-j300-2021","Toyota Land Cruiser (J300)",2021,0,"suv","4","F",204,204,2310,0],["honda-accord-first-generation-1976","Honda Accord (First generation)",1976,1981,"hatch sedan","F","F",69,80,890,4450],["honda-accord-second-generation-1981","Honda Accord (Second generation)",1981,1985,"hatch sedan","F","F",80,130,1011,4410],["honda-accord-third-generation-1985","Honda Accord (Third generation)",1985,1989,"hatch familiar coupe","F","F",0,0,0,0],["honda-accord-fourth-generation-1989","Honda Accord (Fourth generation)",1989,1993,"sedan familiar coupe","F","F",127,142,0,4680],["honda-accord-fifth-generation-japan-north-america-and-asia-pacific-1993","Honda Accord (Fifth generation; Japan, North America and Asia-Pacific)",1993,1997,"sedan familiar coupe","F","F",127,193,0,0],["honda-accord-fifth-generation-europe-1993","Honda Accord (Fifth generation; Europe)",1993,1998,"sedan","F","F",149,276,1240,4675],["honda-accord-tenth-generation-2017","Honda Accord (Tenth generation)",2017,2022,"sedan","F","F",145,256,1420,4900],["honda-accord-eleventh-generation-2023","Honda Accord (Eleventh generation)",2023,0,"sedan","F","F",184,195,1580,4970],["honda-cr-v-first-generation-1995","Honda CR-V (First generation)",1995,2001,"suv","F","F",149,149,0,4510],["honda-cr-v-second-generation-2001","Honda CR-V (Second generation)",2001,2006,"suv","F","F",140,188,0,4600],["honda-civic-type-r-first-generation-1997","Honda Civic Type R (First generation)",1997,2000,"hatch","F","F",185,185,1070,4180],["honda-civic-type-r-second-generation-2001","Honda Civic Type R (Second generation)",2001,2005,"hatch","F","F",200,215,1205,4135],["honda-civic-type-r-third-generation-japan-2007","Honda Civic Type R (Third generation (Japan))",2007,2011,"sedan","F","F",201,260,1270,4570],["honda-civic-type-r-third-generation-europe-and-international-2007","Honda Civic Type R (Third generation; (Europe and international))",2007,2011,"hatch","F","F",201,201,1320,4270],["honda-civic-type-r-fourth-generation-2015","Honda Civic Type R (Fourth generation)",2015,2017,"hatch","F","F",310,310,1380,4390],["honda-civic-type-r-fifth-generation-2017","Honda Civic Type R (Fifth generation)",2017,2021,"hatch","F","F",320,320,1390,4560],["honda-civic-type-r-sixth-generation-2022","Honda Civic Type R (Sixth generation)",2022,0,"","F","F",320,329,1430,4595],["nissan-micra-first-generation-1982","Nissan Micra (First generation)",1982,1992,"hatch","F","F",50,110,635,3785],["nissan-micra-second-generation-1992","Nissan Micra (Second generation)",1992,2003,"hatch cabrio","F","F",55,76,0,0],["nissan-micra-third-generation-2002","Nissan Micra (Third generation)",2002,2010,"hatch coupe cabrio","F","F",65,113,1000,3719],["nissan-micra-fourth-generation-2010","Nissan Micra (Fourth generation)",2010,2022,"hatch","F","F",80,98,1040,3870],["nissan-micra-fifth-generation-2016","Nissan Micra (Fifth generation)",2016,2023,"hatch","F","F",71,101,1052,3999],["nissan-micra-sixth-generation-2025","Nissan Micra (Sixth generation)",2025,0,"hatch","","",64,150,0,3999],["nissan-qashqai-first-generation-2006","Nissan Qashqai (First generation)",2006,2013,"suv","F","F",110,150,1350,4315],["nissan-qashqai-second-generation-2013","Nissan Qashqai (Second generation)",2013,2021,"suv","F","F",110,159,1350,4394],["nissan-qashqai-third-generation-2021","Nissan Qashqai (Third generation)",2021,0,"suv","F","F",140,158,1400,4425],["nissan-juke-first-generation-2010","Nissan Juke (First generation)",2010,2019,"suv","F","F",110,117,1250,4135],["nissan-juke-second-generation-2019","Nissan Juke (Second generation)",2019,0,"suv","F","F",114,117,1250,4210],["mazda-cx-5-first-generation-2012","Mazda CX-5 (First generation)",2012,2017,"suv","F","F",150,175,1455,4540],["mazda-cx-5-second-generation-2016","Mazda CX-5 (Second generation)",2016,2025,"suv","F","F",150,194,1505,4550],["mazda-cx-5-third-generation-2025","Mazda CX-5 (Third generation)",2025,0,"suv","F","F",179,179,1629,4690],["subaru-forester-first-generation-1997","Subaru Forester (First generation)",1997,2002,"suv","4","F",167,177,1430,4450],["subaru-forester-second-generation-2002","Subaru Forester (Second generation)",2002,2008,"suv","4","F",152,265,1320,4450],["subaru-forester-third-generation-2008","Subaru Forester (Third generation)",2008,2013,"suv","4","F",147,150,1550,0],["subaru-forester-fourth-generation-2012","Subaru Forester (Fourth generation)",2012,2018,"suv","4","F",147,241,1550,4595],["subaru-forester-fifth-generation-2018","Subaru Forester (Fifth generation)",2018,2025,"suv","4","F",150,150,1600,4625],["subaru-forester-sixth-generation-2024","Subaru Forester (Sixth generation)",2024,0,"suv","4","F",0,0,0,4655],["mitsubishi-lancer-evolution-first-generation-1992","Mitsubishi Lancer Evolution (First generation)",1992,1994,"sedan familiar","4","F",250,250,1170,4310],["mitsubishi-lancer-evolution-second-generation-1994","Mitsubishi Lancer Evolution (Second generation)",1994,1995,"sedan familiar","4","F",260,260,1180,4310],["mitsubishi-lancer-evolution-third-generation-1995","Mitsubishi Lancer Evolution (Third generation)",1995,1996,"sedan familiar","4","F",270,270,1190,4310],["mitsubishi-lancer-evolution-fourth-generation-1996","Mitsubishi Lancer Evolution (Fourth generation)",1996,1998,"sedan familiar","4","F",280,280,1260,4330],["mitsubishi-lancer-evolution-fifth-generation-1998","Mitsubishi Lancer Evolution (Fifth generation)",1998,1999,"sedan familiar","4","F",280,280,1260,4350],["mitsubishi-lancer-evolution-sixth-generation-1999","Mitsubishi Lancer Evolution (Sixth generation)",1999,2001,"sedan familiar","4","F",280,335,1260,4350],["mitsubishi-lancer-evolution-seventh-generation-2001","Mitsubishi Lancer Evolution (Seventh generation)",2001,2003,"sedan familiar","4","F",272,280,1310,4455],["mitsubishi-lancer-evolution-eighth-generation-2003","Mitsubishi Lancer Evolution (Eighth generation)",2003,2005,"sedan familiar","4","F",237,411,1310,0],["mitsubishi-lancer-evolution-ninth-generation-2005","Mitsubishi Lancer Evolution (Ninth generation)",2005,2007,"sedan familiar","4","F",280,371,1310,4490],["mitsubishi-lancer-evolution-tenth-generation-2007","Mitsubishi Lancer Evolution (Tenth generation)",2007,2016,"sedan familiar","4","F",295,295,1420,4495],["mitsubishi-pajero-first-generation-1982","Mitsubishi Pajero (First generation)",1982,1991,"suv","4","F",84,143,0,4650],["mitsubishi-pajero-second-generation-1991","Mitsubishi Pajero (Second generation)",1991,1999,"cabrio suv","4","F",99,208,0,0],["mitsubishi-pajero-third-generation-1999","Mitsubishi Pajero (Third generation)",1999,2006,"suv","4","F",163,220,2060,0],["mitsubishi-pajero-fourth-generation-2006","Mitsubishi Pajero (Fourth generation)",2006,2021,"suv","4","F",190,200,2110,4900],["mitsubishi-pajero-fifth-generation-2026","Mitsubishi Pajero (Fifth generation)",2026,0,"suv","4","F",204,204,2383,4920],["hyundai-i30-first-generation-2007","Hyundai i30 (First generation)",2007,2012,"hatch familiar","F","F",90,126,1250,4245],["hyundai-i30-second-generation-2011","Hyundai i30 (Second generation)",2011,2017,"hatch coupe","F","F",90,135,1210,4300],["hyundai-i30-third-generation-2016","Hyundai i30 (Third generation)",2016,0,"hatch familiar","F","F",99,166,1197,4340],["hyundai-tucson-first-generation-2004","Hyundai Tucson (First generation)",2004,2009,"suv","F","F",109,175,1529,4325],["hyundai-tucson-second-generation-2009","Hyundai Tucson (Second generation)",2009,2015,"suv","F","F",116,184,1410,4410],["hyundai-tucson-third-generation-2015","Hyundai Tucson (Third generation)",2015,2021,"suv","F","F",116,185,1488,4475],["hyundai-tucson-fourth-generation-2020","Hyundai Tucson (Fourth generation)",2020,0,"suv","F","F",116,179,1491,4510],["hyundai-tucson-fifth-generation-2026","Hyundai Tucson (Fifth generation)",2026,0,"suv","F","F",187,236,0,4560],["hyundai-kona-first-generation-2017","Hyundai Kona (First generation)",2017,2023,"suv","F","F",38,204,1233,4215],["hyundai-kona-second-generation-2023","Hyundai Kona (Second generation)",2023,0,"suv","F","F",120,218,1525,4385],["kia-picanto-first-generation-2003","Kia Picanto (First generation)",2003,2011,"hatch","F","F",63,86,836,3535],["kia-picanto-second-generation-2011","Kia Picanto (Second generation)",2011,2017,"hatch","F","F",67,86,840,3595],["kia-picanto-third-generation-2017","Kia Picanto (Third generation)",2017,0,"hatch","F","F",67,99,900,3595],["dacia-duster-first-generation-2010","Dacia Duster (First generation)",2010,2017,"suv pickup","F","F",90,125,1160,4315],["dacia-duster-second-generation-2017","Dacia Duster (Second generation)",2017,2024,"suv pickup","F","F",91,150,1250,4320],["dacia-duster-third-generation-2023","Dacia Duster (Third generation)",2023,0,"suv","F","F",50,304,0,4343],["mercedes-benz-a-class-first-generation-1996","Mercedes-Benz A-Class (First generation)",1996,2004,"hatch","F","F",75,253,0,3606],["mercedes-benz-a-class-second-generation-2004","Mercedes-Benz A-Class (Second generation)",2004,2012,"hatch","F","F",95,116,1200,3838],["mercedes-benz-a-class-third-generation-2012","Mercedes-Benz A-Class (Third generation)",2012,2018,"hatch","F","F",102,177,1350,0],["mercedes-benz-a-class-fourth-generation-2018","Mercedes-Benz A-Class (Fourth generation)",2018,0,"hatch sedan","F","F",116,190,1350,0],["mercedes-benz-g-class-w460-1979","Mercedes-Benz G-Class (W460)",1979,1991,"cabrio pickup","4","F",84,182,0,0],["mercedes-benz-g-class-w461-1985","Mercedes-Benz G-Class (W461)",1985,2022,"cabrio pickup","4","F",92,184,0,0],["mercedes-benz-g-class-w463-1990","Mercedes-Benz G-Class (W463)",1990,2018,"cabrio","4","F",211,544,2580,0],["mercedes-benz-sl-class-first-generation-1954","Mercedes-Benz SL-Class (First generation)",1954,1963,"coupe cabrio","R","F",0,0,0,4520],["mercedes-benz-sl-class-second-generation-1963","Mercedes-Benz SL-Class (Second generation)",1963,1971,"coupe cabrio","R","F",0,0,0,4285],["mercedes-benz-sl-class-third-generation-1971","Mercedes-Benz SL-Class (Third generation)",1971,1989,"coupe cabrio","R","F",0,0,0,0],["mercedes-benz-sl-class-fourth-generation-1989","Mercedes-Benz SL-Class (Fourth generation)",1989,2001,"coupe cabrio","R","F",0,0,0,0],["mercedes-benz-sl-class-fifth-generation-2001","Mercedes-Benz SL-Class (Fifth generation)",2001,2011,"coupe cabrio","R","F",231,525,1800,0],["mercedes-benz-sl-class-sixth-generation-2011","Mercedes-Benz SL-Class (Sixth generation)",2011,2020,"coupe cabrio","R","F",306,455,1650,4612],["mercedes-benz-sl-class-seventh-generation-2022","Mercedes-Benz SL-Class (Seventh generation)",2022,0,"coupe cabrio","R","F",449,612,1850,4705],["audi-a4-first-generation-b5-8d-1994","Audi A4 (First generation (B5/8D))",1994,2001,"sedan familiar","F","F",90,193,0,4520],["audi-a4-second-generation-b6-8e-8h-2000","Audi A4 (Second generation (B6/8E/8H))",2000,2006,"sedan familiar","F","F",115,220,0,4547],["audi-a4-third-generation-b7-8e-8h-2004","Audi A4 (Third generation (B7/8E/8H))",2004,2009,"sedan familiar","F","F",115,255,0,4586],["audi-a4-fourth-generation-b8-8k-2008","Audi A4 (Fourth generation (B8/8K))",2008,2016,"sedan familiar","F","F",120,224,1500,4703],["audi-a4-fifth-generation-b9-8w-2015","Audi A4 (Fifth generation (B9/8W))",2015,2025,"sedan familiar","F","F",136,252,1450,4762],["porsche-911-porsche-997-2004","Porsche 911 (Porsche 997)",2004,2013,"coupe cabrio","R","F",345,530,1400,0],["porsche-911-porsche-991-2011","Porsche 911 (Porsche 991)",2011,2019,"coupe cabrio","R","F",349,581,1435,4491],["porsche-cayenne-first-generation-2002","Porsche Cayenne (First generation)",2002,2009,"suv","4","F",250,521,0,4782],["porsche-cayenne-second-generation-2010","Porsche Cayenne (Second generation)",2010,2017,"coupe suv","4","F",239,441,2085,4846],["porsche-cayenne-third-generation-2017","Porsche Cayenne (Third generation)",2017,0,"coupe suv","4","F",340,549,2083,0],["porsche-cayenne-fourth-generation-2026","Porsche Cayenne (Fourth generation)",2026,0,"coupe suv","4","F",544,1087,2645,4985],["volvo-xc90-first-generation-2002","Volvo XC90 (First generation)",2002,2014,"suv","F","F",163,200,2020,4821],["volvo-xc90-second-generation-2015","Volvo XC90 (Second generation)",2015,0,"suv","F","F",190,320,1950,0],["land-rover-defender-ninety-one-ten-and-one-two-seven-1983","Land Rover Defender (Ninety, One Ten and One Two Seven)",1983,1990,"pickup","4","F",69,136,0,0],["jeep-wrangler-yj","Jeep Wrangler (YJ)",0,0,"","R","F",0,0,0,0],["jeep-wrangler-tj-1996","Jeep Wrangler (TJ)",1996,2006,"","R","F",0,0,0,0],["jeep-wrangler-jk-2006","Jeep Wrangler (JK)",2006,2018,"","R","F",200,284,1900,0],["jeep-wrangler-jl-2017","Jeep Wrangler (JL)",2017,0,"","R","F",200,284,1850,0],["lotus-elise-series-1-1996","Lotus Elise (Series 1)",1996,2001,"cabrio","R","M",120,345,725,3726],["lotus-elise-series-2-2001","Lotus Elise (Series 2)",2001,2011,"cabrio","R","M",136,220,860,3785],["lotus-elise-series-3-2011","Lotus Elise (Series 3)",2011,2021,"cabrio","R","M",136,249,866,3824],["suzuki-swift-first-generation-2004","Suzuki Swift (First generation)",2004,2010,"hatch","F","F",85,125,1000,3695],["suzuki-swift-second-generation-2010","Suzuki Swift (Second generation)",2010,2017,"hatch","F","F",75,136,960,3850],["suzuki-swift-third-generation-2016","Suzuki Swift (Third generation)",2016,2023,"hatch","F","F",83,136,840,3855],["suzuki-swift-fourth-generation-2023","Suzuki Swift (Fourth generation)",2023,0,"hatch","F","F",70,83,910,3860],["suzuki-jimny-first-generation-1970","Suzuki Jimny (First generation)",1970,1981,"cabrio suv","R","F",25,41,0,0],["suzuki-jimny-second-generation-1981","Suzuki Jimny (Second generation)",1981,1998,"cabrio pickup","R","F",42,80,730,0],["suzuki-jimny-third-generation-1998","Suzuki Jimny (Third generation)",1998,2018,"cabrio suv","R","F",84,86,1000,3395],["suzuki-jimny-fourth-generation-2018","Suzuki Jimny (Fourth generation)",2018,0,"suv","R","F",102,102,1030,3395],["smart-fortwo-first-generation-1998","Smart Fortwo (First generation)",1998,2007,"hatch","R","R",71,82,730,2500],["smart-fortwo-second-generation-2006","Smart Fortwo (Second generation)",2006,2014,"hatch","R","R",54,102,750,2695]];
+const BY_KEY = {};
+for (const r of CARS) BY_KEY[r[0]] = r;
+const THIS_YEAR = 2026;
+
+// País de fundació de cada marca (l'origen d'una marca és on es va fundar).
+const BRANDS = [['Mercedes-Benz', 'DE'], ['Land Rover', 'GB'], ['Range Rover', 'GB'], ['Alfa Romeo', 'IT'], ['Aston Martin', 'GB'],
+  ['Toyota', 'JP'], ['Ford', 'US'], ['Honda', 'JP'], ['Renault', 'FR'], ['Volkswagen', 'DE'], ['Opel', 'DE'], ['Nissan', 'JP'],
+  ['SEAT', 'ES'], ['Peugeot', 'FR'], ['BMW', 'DE'], ['Mitsubishi', 'JP'], ['Citroën', 'FR'], ['Mazda', 'JP'], ['Fiat', 'IT'],
+  ['Audi', 'DE'], ['Chevrolet', 'US'], ['Subaru', 'JP'], ['Hyundai', 'KR'], ['Porsche', 'DE'], ['Škoda', 'CZ'], ['Kia', 'KR'],
+  ['Dacia', 'RO'], ['Suzuki', 'JP'], ['Ferrari', 'IT'], ['Lamborghini', 'IT'], ['Lancia', 'IT'], ['Dodge', 'US'], ['Mini', 'GB'],
+  ['Jeep', 'US'], ['Volvo', 'SE'], ['Smart', 'DE'], ['Lotus', 'GB'], ['Cupra', 'ES'], ['Bugatti', 'FR'], ['McLaren', 'GB'], ['DMC', 'US'],
+  ['DeLorean', 'US'], ['Lexus', 'JP'], ['Jaguar', 'GB'], ['Maserati', 'IT'], ['Saab', 'SE'], ['Tesla', 'US'], ['Infiniti', 'JP'], ['Abarth', 'IT']];
+function origin(name) {
+  const b = BRANDS.find(([m]) => name === m || name.startsWith(m + ' '));
+  return b ? b[1] : null;
+}
+
+// ---------------------------------------------------------------- criteris
+const BODY = { hatch: 'hatchback', sedan: 'berlina', coupe: 'coupé', familiar: 'familiar', cabrio: 'descapotable', suv: 'SUV', pickup: 'pick-up', mpv: 'monovolum' };
+const DRIVE = { F: 'davantera', R: 'posterior', 4: 'integral' };
+const ENGINE = { F: 'davanter', M: 'central', R: 'posterior' };
+const COUNTRY = { DE: 'alemanya', FR: 'francesa', IT: 'italiana', ES: 'espanyola', GB: 'britànica', SE: 'sueca', CZ: 'txeca', RO: 'romanesa', US: 'nord-americana', JP: 'japonesa', KR: 'coreana' };
+const TYPES = ['body', 'years', 'power', 'weight', 'length', 'drive', 'engine', 'origin'];
+const LIMITS = { years: [1950, THIS_YEAR], power: [40, 1600], weight: [500, 3500], length: [2500, 6000] };
+
+const num = (n) => Math.round(n).toLocaleString('ca-ES').replace(/\s/g, '.');
+const orList = (xs) => xs.length <= 1 ? (xs[0] || '') : xs.slice(0, -1).join(', ') + ' o ' + xs[xs.length - 1];
+
+// Neteja un criteri de la IA: només tipus i valors coneguts; si no és vàlid, null.
+function cleanCriterion(c) {
+  if (!c || !TYPES.includes(c.type)) return null;
+  const hard = c.hard === true;
+  const pick = (dict) => [...new Set((Array.isArray(c.any) ? c.any : []).map(String).filter((v) => v in dict))];
+  if (c.type === 'body') { const any = pick(BODY); return any.length ? { type: 'body', any, hard } : null; }
+  if (c.type === 'drive') { const any = pick(DRIVE); return any.length && any.length < 3 ? { type: 'drive', any, hard } : null; }
+  if (c.type === 'engine') { const any = pick(ENGINE); return any.length && any.length < 3 ? { type: 'engine', any, hard } : null; }
+  if (c.type === 'origin') { const any = pick(COUNTRY); return any.length && any.length <= 4 ? { type: 'origin', any, hard } : null; }
+  const [lo, hi] = LIMITS[c.type];
+  const ok = (x) => typeof x === 'number' && x >= lo && x <= hi;
+  if (c.type === 'years') {
+    const from = Math.round(c.from), to = Math.round(c.to);
+    return ok(from) && ok(to) && from <= to ? { type: 'years', from, to, hard } : null;
+  }
+  if (ok(c.min) && !ok(c.max)) return { type: c.type, min: Math.round(c.min), hard };
+  if (ok(c.max) && !ok(c.min)) return { type: c.type, max: Math.round(c.max), hard };
+  return null;
+}
+
+function label(c) {
+  switch (c.type) {
+    case 'body': return 'Carrosseria ' + orList(c.any.map((v) => BODY[v]));
+    case 'years': return c.from === c.to ? `Fabricat el ${c.from}` : `Fabricat entre ${c.from} i ${c.to}`;
+    case 'power': return c.min ? `Almenys ${num(c.min)} CV` : `Com a màxim ${num(c.max)} CV`;
+    case 'weight': return c.min ? `Almenys ${num(c.min)} kg` : `Com a màxim ${num(c.max)} kg`;
+    case 'length': return (c.min ? 'Almenys ' : 'Com a màxim ') + ((c.min || c.max) / 1000).toFixed(2).replace('.', ',') + ' m de llarg';
+    case 'drive': return 'Tracció ' + orList(c.any.map((v) => DRIVE[v]));
+    case 'engine': return 'Motor ' + orList(c.any.map((v) => ENGINE[v]));
+    case 'origin': return 'Marca ' + orList(c.any.map((v) => COUNTRY[v]));
+  }
+  return '';
+}
+
+// Satisfacció d'un criteri per a una fitxa: 1 compleix, entre 0 i 1 a prop, 0 no, null sense dada.
+function evalCriterion(c, r) {
+  const y0 = r[2], y1 = r[3] || THIS_YEAR, body = r[4] ? r[4].split(' ') : [], drive = r[5], eng = r[6], cvMin = r[7], cvMax = r[8], kg = r[9], mm = r[10];
+  const near = (v, target, tol) => Math.max(0, 1 - Math.abs(v - target) / (target * tol));
+  switch (c.type) {
+    case 'body': return { n: body.length ? (c.any.some((v) => body.includes(v)) ? 1 : 0) : null, v: body.map((b) => BODY[b]).join(', ') || null };
+    case 'years': {
+      if (!y0) return { n: null, v: null };
+      const v = `${y0}–${r[3] ? y1 : 'avui'}`;
+      if (y0 <= c.to && y1 >= c.from) return { n: 1, v };
+      const gap = y0 > c.to ? y0 - c.to : c.from - y1;
+      return { n: Math.max(0, 1 - 0.25 * gap), v };
+    }
+    case 'power': {
+      if (!cvMax) return { n: null, v: null };
+      const v = cvMin && cvMin !== cvMax ? `${cvMin}–${cvMax} CV` : `${cvMax} CV`;
+      if (c.min) return { n: cvMax >= c.min ? 1 : near(cvMax, c.min, 0.25), v };
+      const lo = cvMin || cvMax;
+      return { n: lo <= c.max ? 1 : near(lo, c.max, 0.25), v };
+    }
+    case 'weight': {
+      if (!kg) return { n: null, v: null };
+      const v = `${num(kg)} kg`;
+      if (c.min) return { n: kg >= c.min ? 1 : near(kg, c.min, 0.15), v };
+      return { n: kg <= c.max ? 1 : near(kg, c.max, 0.15), v };
+    }
+    case 'length': {
+      if (!mm) return { n: null, v: null };
+      const v = (mm / 1000).toFixed(2).replace('.', ',') + ' m';
+      if (c.min) return { n: mm >= c.min ? 1 : near(mm, c.min, 0.08), v };
+      return { n: mm <= c.max ? 1 : near(mm, c.max, 0.08), v };
+    }
+    case 'drive': {
+      if (!drive) return { n: null, v: null };
+      return { n: [...drive].some((d) => c.any.includes(d)) ? 1 : 0, v: [...drive].map((d) => DRIVE[d]).join(' o ') };
+    }
+    case 'engine': return eng ? { n: c.any.includes(eng) ? 1 : 0, v: ENGINE[eng] } : { n: null, v: null };
+    case 'origin': {
+      const o = origin(r[1]);
+      return o ? { n: c.any.includes(o) ? 1 : 0, v: COUNTRY[o] } : { n: null, v: null };
+    }
+  }
+  return { n: null, v: null };
+}
+
+// Puntuació d'una fitxa en un repte: una dada que falta no suma, i un imprescindible sense dada no es compleix.
+function scoreCar(ch, r) {
+  let num_ = 0, den = 0, hardOk = true, complete = true;
+  const rows = ch.criteria.map((c) => {
+    const e = evalCriterion(c, r), w = c.hard ? WEIGHT.hard : WEIGHT.soft;
+    num_ += w * (e.n || 0); den += w;
+    if (c.hard && e.n !== 1) hardOk = false;
+    if (e.n === null) complete = false;
+    return { id: c.id, n: e.n === null ? null : Math.round(e.n * 100) / 100, v: e.v };
+  });
+  return { score: den ? Math.round(1000 * num_ / den) / 10 : 0, hardOk, complete, rows };
+}
+
+// Un contra un: primer els imprescindibles, després la puntuació amb un marge d'empat.
+function duel(a, b) {
+  if (!a && !b) return 0;
+  if (!a || !b) return a ? 1 : -1;
+  if (a.key === b.key) return 0;
+  if (a.hardOk !== b.hardOk) return a.hardOk ? 1 : -1;
+  const d = a.score - b.score;
+  return Math.abs(d) >= TIE_MARGIN ? Math.sign(d) : 0;
+}
+
+// Un repte val si un grup raonable de fitxes amb totes les dades el compleix bé, però no la majoria.
+function validate(ch) {
+  const good = CARS.filter((r) => { const s = scoreCar(ch, r); return s.hardOk && s.complete && s.score >= 80; }).length;
+  const hardOk = CARS.filter((r) => scoreCar(ch, r).hardOk).length;
+  return { ok: good >= 4 && hardOk <= CARS.length * 0.45, good, hardOk };
+}
+
+function buildChallenge(raw) {
+  if (!raw || typeof raw.title !== 'string') return null;
+  const title = raw.title.replace(/[<>\n\r]/g, '').trim().slice(0, 70);
+  const seen = new Set(), criteria = [];
+  for (const c0 of Array.isArray(raw.criteria) ? raw.criteria : []) {
+    const c = cleanCriterion(c0);
+    if (!c || seen.has(c.type)) continue;
+    seen.add(c.type); criteria.push(c);
+  }
+  if (!title || criteria.length < 3) return null;
+  const ch = { title, criteria: criteria.slice(0, 5) };
+  if (!ch.criteria.some((c) => c.hard)) ch.criteria[0].hard = true;
+  let hard = 0;
+  for (const c of ch.criteria) if (c.hard && ++hard > 2) c.hard = false;
+  ch.criteria.forEach((c, i) => { c.id = 'c' + (i + 1); c.label = label(c); });
+  return ch;
+}
+
+// Reptes de recanvi, per si la IA falla o en proposa massa pocs de vàlids.
+const SPARE = [
+  { title: 'Hot hatch per a la carretera de muntanya', criteria: [{ type: 'body', any: ['hatch'], hard: true }, { type: 'power', min: 180 }, { type: 'drive', any: ['F', '4'] }, { type: 'years', from: 2000, to: 2020 }] },
+  { title: 'Esportiu lleuger de tracció posterior', criteria: [{ type: 'drive', any: ['R'], hard: true }, { type: 'body', any: ['coupe', 'cabrio'] }, { type: 'weight', max: 1300 }, { type: 'power', min: 150 }] },
+  { title: 'SUV familiar per anar a esquiar', criteria: [{ type: 'body', any: ['suv'], hard: true }, { type: 'drive', any: ['4'], hard: true }, { type: 'years', from: 2010, to: THIS_YEAR }, { type: 'length', min: 4500 }] },
+  { title: 'Berlina ràpida per a autopista', criteria: [{ type: 'body', any: ['sedan'], hard: true }, { type: 'power', min: 300 }, { type: 'years', from: 2005, to: THIS_YEAR }, { type: 'length', min: 4700 }] },
+  { title: 'Superesportiu amb el motor darrere teu', criteria: [{ type: 'engine', any: ['M', 'R'], hard: true }, { type: 'power', min: 450 }, { type: 'body', any: ['coupe', 'cabrio'] }, { type: 'years', from: 1985, to: THIS_YEAR }] },
+  { title: 'Utilitari clàssic per a la ciutat', criteria: [{ type: 'body', any: ['hatch'], hard: true }, { type: 'years', from: 1975, to: 1995 }, { type: 'length', max: 3800 }, { type: 'power', max: 100 }] },
+  { title: 'Familiar per carregar-ho tot', criteria: [{ type: 'body', any: ['familiar', 'mpv'], hard: true }, { type: 'years', from: 2000, to: THIS_YEAR }, { type: 'length', min: 4600 }, { type: 'power', min: 120 }] },
+  { title: 'Icona japonesa dels 90', criteria: [{ type: 'origin', any: ['JP'], hard: true }, { type: 'years', from: 1990, to: 1999 }, { type: 'power', min: 200 }, { type: 'body', any: ['coupe', 'hatch'] }] },
+  { title: 'Gran turisme italià', criteria: [{ type: 'origin', any: ['IT'], hard: true }, { type: 'power', min: 250 }, { type: 'body', any: ['coupe', 'cabrio'] }, { type: 'years', from: 1970, to: THIS_YEAR }] },
+  { title: 'Tot terreny de veritat', criteria: [{ type: 'drive', any: ['4'], hard: true }, { type: 'body', any: ['suv', 'pickup'] }, { type: 'weight', min: 1600 }, { type: 'years', from: 1980, to: THIS_YEAR }] },
+];
+
+function chooseChallenges(rawList, n, rand) {
+  const out = [], titles = new Set();
+  for (const raw of rawList) {
+    const ch = buildChallenge(raw);
+    if (!ch || titles.has(ch.title.toLowerCase()) || !validate(ch).ok) continue;
+    titles.add(ch.title.toLowerCase()); out.push(ch);
+    if (out.length >= n) break;
+  }
+  const spare = SPARE.slice().sort(() => rand() - 0.5);
+  for (const raw of spare) {
+    if (out.length >= n) break;
+    const ch = buildChallenge(raw);
+    if (ch && !titles.has(ch.title.toLowerCase()) && validate(ch).ok) { titles.add(ch.title.toLowerCase()); out.push(ch); }
+  }
+  // Si encara en falten (partides de 15 rondes), es repeteixen recanvis.
+  for (let i = 0; out.length < n; i++) out.push(buildChallenge(spare[i % spare.length]));
+  return out.slice(0, n);
+}
+
+function challengePrompt(n) {
+  return [
+    'You design challenges for a car quiz game for car enthusiasts. Players get a challenge and pick the real car that fits it best from a database. Write titles in Catalan with correct spelling.',
+    `Create ${n} different challenges. Each challenge has a short catchy title in Catalan (max 60 characters, like "Hot hatch per a la carretera de muntanya" or "Esportiu lleuger dels 90") and 3 to 5 criteria, each of a different type, using ONLY these types:`,
+    '- {"type":"body","any":[...]} values: hatch, sedan, coupe, familiar, cabrio, suv, pickup, mpv',
+    `- {"type":"years","from":YYYY,"to":YYYY} production years overlap, between 1960 and ${THIS_YEAR}`,
+    '- {"type":"power","min":N} or {"type":"power","max":N} horsepower (CV), 50 to 1000',
+    '- {"type":"weight","min":N} or {"type":"weight","max":N} kerb weight kg, 700 to 2800',
+    '- {"type":"length","min":N} or {"type":"length","max":N} length in mm, 3000 to 5300',
+    '- {"type":"drive","any":[...]} values: F (front), R (rear), 4 (all-wheel)',
+    '- {"type":"engine","any":[...]} values: F (front), M (mid), R (rear)',
+    '- {"type":"origin","any":[...]} brand country: DE, FR, IT, ES, GB, SE, CZ, RO, US, JP, KR',
+    'Mark 1 or 2 criteria per challenge with "hard":true (must be met). Prefer body, drive, engine, origin or years as hard criteria. Make the challenges varied and fun: classics, hot hatches, family cars, supercars, off-roaders, city cars, Japanese icons, European saloons.',
+    'Each challenge must be met by at least 4 real, well-known cars of mainstream brands (Toyota, Ford, Honda, Renault, Volkswagen, Opel, Nissan, SEAT, Peugeot, Mercedes-Benz, BMW, Mitsubishi, Citroën, Mazda, Fiat, Audi, Chevrolet, Subaru, Hyundai, Porsche, Škoda, Kia, Dacia, Suzuki, Ferrari, Land Rover, Lamborghini, Lancia, Mini, Alfa Romeo, Jeep, Volvo, Lotus) but must not be met by most cars.',
+    'Return ONLY JSON, no text before or after: {"challenges":[{"title":"...","criteria":[{"type":"body","any":["hatch"],"hard":true},{"type":"power","min":180}]}]}',
+  ].join('\n');
+}
+
+function parseJSON(raw, fallback) {
+  if (!raw) return fallback;
+  if (typeof raw === 'object') return raw;
+  const s = String(raw), i = s.indexOf('{'), j = s.lastIndexOf('}');
+  if (i < 0 || j < i) return fallback;
+  try { return JSON.parse(s.slice(i, j + 1)); } catch (e) { return fallback; }
+}
+
+// ---------------------------------------------------------------- jugadors i rondes
+// L'etiqueta pública d'un jugador: la pàgina la calcula igual per reconèixer-se, però no permet fer-se passar per ell.
+function tag(pid) {
+  let h = 5381;
+  for (let i = 0; i < pid.length; i++) h = ((h * 33) ^ pid.charCodeAt(i)) >>> 0;
+  return h.toString(36).padStart(6, '0').slice(-6);
+}
+function cleanAlias(name, players) {
+  let a = String(name || '').replace(/[<>\n\r]/g, '').trim().slice(0, 24) || 'Pilot';
+  if (a === RIVAL_ALIAS) a = 'Pilot';
+  const base = a;
+  for (let i = 2; players.some((p) => p.alias.toLowerCase() === a.toLowerCase()); i++) a = `${base} ${i}`;
+  return a;
+}
+const humans = (g) => g.players.filter((p) => p.pid !== RIVAL && !p.left);
+const cur = (g) => g.rounds[g.rounds.length - 1] || null;
+const at = (iso) => Date.parse(iso);
+const iso = (ms) => new Date(ms).toISOString();
+
+function newGame(room, host, alias, rounds, solo, now) {
+  const g = { v: 2, room, host, solo, status: 'lobby', created_at: now, rounds_total: rounds, players: [], seen: {}, challenges: [], rounds: [], prep_at: null };
+  g.players.push({ pid: host, alias: cleanAlias(alias, []), tag: tag(host) });
+  if (solo) g.players.push({ pid: RIVAL, alias: RIVAL_ALIAS, tag: RIVAL });
+  return g;
+}
+
+function startPreparing(g, ctx) {
+  g.status = 'preparing'; g.prep_at = ctx.now;
+  ctx.ai(challengePrompt(Math.min(g.rounds_total + 4, 19)));
+}
+
+// El Rival IA tria abans de conèixer cap cotxe: un dels que encaixen bé, a l'atzar.
+function rivalPick(ch, rand) {
+  const good = CARS.map((r) => [scoreCar(ch, r), r]).filter(([s]) => s.hardOk && s.complete).sort((a, b) => b[0].score - a[0].score);
+  const top = good.slice(0, 30);
+  const r = top.length ? top[Math.floor(rand() * top.length)][1] : CARS[Math.floor(rand() * CARS.length)];
+  return r[0];
+}
+
+function openRound(g, ctx) {
+  const n = g.rounds.length + 1, ch = g.challenges[n - 1];
+  const r = { n, challenge: ch, opened_at: ctx.now, deadline: iso(at(ctx.now) + OPEN_MARGIN_MS + TURN_MS), picks: {}, status: 'open' };
+  if (g.solo) r.picks[RIVAL] = { key: rivalPick(ch, ctx.rand), at: ctx.now };
+  g.rounds.push(r);
+  ctx.say(`Ronda ${n}: ${ch.title}`);
+}
+
+function resolveRound(g, ctx) {
+  const r = cur(g);
+  const entries = g.players.filter((p) => !p.left || r.picks[p.pid]).map((p) => {
+    const pk = r.picks[p.pid], row = pk && BY_KEY[pk.key];
+    const s = row ? Object.assign({ key: row[0] }, scoreCar(r.challenge, row)) : null;
+    return { pid: p.pid, s, car: row ? { key: row[0], name: row[1], years: row[2] ? `${row[2]}–${row[3] || 'avui'}` : '' } : null };
+  });
+  for (const e of entries) e.points = entries.reduce((acc, o) => o === e ? acc : acc + [0, 0.5, 1][duel(e.s, o.s) + 1] * (e.s || o.s ? 1 : 0), 0);
+  entries.sort((x, y) => y.points - x.points || (y.s ? y.s.score : -1) - (x.s ? x.s.score : -1));
+  r.status = 'verdict'; r.verdict_at = ctx.now;
+  r.result = entries.map((e) => ({ pid: e.pid, points: e.points, car: e.car, score: e.s ? e.s.score : null, hardOk: e.s ? e.s.hardOk : false, rows: e.s ? e.s.rows : [] }));
+  const best = r.result[0];
+  ctx.say(best && best.car ? `Ronda ${r.n}: guanya ${alias(g, best.pid)} amb ${best.car.name}.` : `Ronda ${r.n}: ningú no ha triat cap cotxe.`);
+  if (r.n >= g.rounds_total) { g.status = 'finished'; ctx.say('Partida acabada.'); }
+}
+function alias(g, pid) { const p = g.players.find((x) => x.pid === pid); return p ? p.alias : '?'; }
+
+function totals(g) {
+  const t = {};
+  for (const p of g.players) t[p.pid] = 0;
+  for (const r of g.rounds) for (const e of r.result || []) t[e.pid] = (t[e.pid] || 0) + e.points;
+  return t;
+}
+
+// ---------------------------------------------------------------- ordres
+function step(g, ev, ctx) {
+  const text = String(ev.text || '').trim();
+  const [cmd0, ...rest] = text.split(/\s+/);
+  const cmd = (cmd0 || '').toLowerCase();
+  const arg = rest.join(' ');
+  const pid = ev.pid, now = at(ctx.now);
+  const me = g && g.players.find((p) => p.pid === pid && !p.left);
+  const isHost = !!g && g.host === pid;
+
+  if (cmd === '/nova' || cmd === '/sala') {
+    if (g && g.status !== 'finished' && g.status !== 'cancelled') { ctx.say('Aquesta sala ja té una partida.'); return g; }
+    const n = [5, 10, 15].includes(Number(arg)) ? Number(arg) : 5;
+    const ng = newGame(ev.room, pid, ev.name, n, cmd === '/nova', ctx.now);
+    if (ng.solo) startPreparing(ng, ctx); else ctx.say(`${ng.players[0].alias} ha creat la sala.`);
+    return ng;
+  }
+  if (!g) { ctx.say('Aquesta sala no existeix.'); return g; }
+
+  switch (cmd) {
+    case '/unir': {
+      if (me) return g;
+      if (g.status !== 'lobby') { ctx.say('La partida ja ha començat.'); return g; }
+      if (humans(g).length >= MAX_PLAYERS) { ctx.say('La sala és plena.'); return g; }
+      const p = { pid, alias: cleanAlias(ev.name, humans(g)), tag: tag(pid) };
+      g.players = g.players.filter((x) => x.pid !== pid).concat([p]);
+      ctx.say(`${p.alias} entra a la sala.`);
+      return g;
+    }
+    case '/surt': {
+      if (!me) return g;
+      if (g.status === 'lobby') g.players = g.players.filter((x) => x.pid !== pid); else me.left = true;
+      ctx.say(`${me.alias} surt de la sala.`);
+      if (isHost) {
+        const next = humans(g)[0];
+        if (next) g.host = next.pid; else g.status = 'cancelled';
+      }
+      return g;
+    }
+    case '/comencar': {
+      if (!isHost || g.status !== 'lobby') return g;
+      if (humans(g).length < 2) { ctx.say('Cal que hi hagi almenys dues persones a la sala.'); return g; }
+      startPreparing(g, ctx);
+      return g;
+    }
+    case '/reintenta': {
+      // Si el repte s'ha encallat (per exemple, Make s'ha aturat), es torna a demanar.
+      if (g.status === 'preparing' && now - at(g.prep_at) > STUCK_MS && me) startPreparing(g, ctx);
+      return g;
+    }
+    case '#fitxa': {
+      const r = cur(g);
+      if (!me || g.status !== 'playing' || !r || r.status !== 'open') return g;
+      if (r.picks[pid]) return g;
+      if (now > at(r.deadline) + GRACE_MS) { ctx.say(`${me.alias} ha arribat tard.`); return g; }
+      const key = arg.split('|')[0].trim();
+      if (!BY_KEY[key]) { ctx.say('Aquest cotxe no és a la base de dades.'); return g; }
+      r.picks[pid] = { key, at: ctx.now };
+      if (humans(g).every((p) => r.picks[p.pid])) resolveRound(g, ctx);
+      return g;
+    }
+    case '/temps': {
+      const r = cur(g);
+      if (g.status === 'playing' && r && r.status === 'open' && (now >= at(r.deadline) - 1000 || humans(g).every((p) => r.picks[p.pid]))) resolveRound(g, ctx);
+      return g;
+    }
+    case '/seguent': {
+      const r = cur(g);
+      if (!me || g.status !== 'playing' || !r || r.status !== 'verdict') return g;
+      // L'amfitrió passa quan vol; si no hi és, qualsevol jugador pot passar quan s'acaba el temps del veredicte.
+      if (!isHost && now < at(r.verdict_at) + NEXT_MS) return g;
+      openRound(g, ctx);
+      return g;
+    }
+    case '/cancela': {
+      if (!isHost) return g;
+      g.status = 'cancelled'; ctx.say('Partida cancel·lada.');
+      return g;
+    }
+    default: return g;
+  }
+}
+
+// Les tries de la web arriben a part (una fila per jugador, desada en rebre-la) perquè no facin cua al motor.
+// Només compten les de la ronda oberta, de jugadors de la sala, de cotxes de la base de dades i fetes a temps.
+function mergePicks(g, picks) {
+  const r = g && cur(g);
+  if (!r || g.status !== 'playing' || r.status !== 'open') return;
+  for (const pk of picks) {
+    const p = g.players.find((x) => x.pid === pk.pid && !x.left && x.pid !== RIVAL);
+    if (!p || Number(pk.round) !== r.n || r.picks[p.pid] || !BY_KEY[pk.key]) continue;
+    // Una fila d'una partida anterior de la mateixa sala és d'abans que s'obrís la ronda.
+    if (!(at(pk.at) <= at(r.deadline) + GRACE_MS && at(pk.at) >= at(r.opened_at) - 2000)) continue;
+    r.picks[p.pid] = { key: pk.key, at: pk.at };
+  }
+}
+function parsePicks(raw) {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw;
+  return String(raw).split('\x1e').map((line) => line.split('\x1f').map((x) => x.trim())).filter((f) => f.length >= 4 && f[0])
+    .map(([pid, round, key, at]) => ({ pid, round, key, at }));
+}
+
+// Arriba la resposta de la IA amb els reptes.
+function apply(g, ctx, raw) {
+  if (!g || g.status !== 'preparing') return g;
+  const out = parseJSON(raw, null);
+  const list = out && Array.isArray(out.challenges) ? out.challenges : [];
+  g.challenges = chooseChallenges(list, g.rounds_total, ctx.rand);
+  g.ai_valid = g.challenges.filter((c) => list.some((x) => x && x.title && x.title.trim().slice(0, 70) === c.title)).length;
+  g.status = 'playing';
+  openRound(g, ctx);
+  return g;
+}
+
+// ---------------------------------------------------------------- estat visible per a la pàgina
+// Mai inclou els identificadors secrets dels jugadors ni els reptes de les rondes que encara no han començat.
+function uiState(g, ctx) {
+  if (!g) return { status: 'none', server_now: ctx.now };
+  const t = totals(g), r = cur(g);
+  const tagOf = (pid) => (g.players.find((p) => p.pid === pid) || {}).tag || '?';
+  const ui = {
+    status: g.status, solo: !!g.solo, rounds: g.rounds_total, round: r ? r.n : 0,
+    host: tagOf(g.host), server_now: ctx.now, turn_ms: TURN_MS,
+    players: g.players.filter((p) => !p.left).map((p) => ({ tag: p.tag, alias: p.alias, points: t[p.pid] || 0, picked: !!(r && r.status === 'open' && r.picks[p.pid]) })),
+    history: g.rounds.filter((x) => x.result).map((x) => x.result.map((e) => [tagOf(e.pid), e.points])),
+  };
+  if (r) {
+    ui.round_status = r.status;
+    ui.challenge = { title: r.challenge.title, criteria: r.challenge.criteria.map((c) => ({ id: c.id, label: c.label, hard: !!c.hard })) };
+    if (r.status === 'open') ui.deadline = r.deadline;
+    if (r.status === 'verdict') {
+      ui.verdict_at = r.verdict_at;
+      ui.next_at = iso(at(r.verdict_at) + NEXT_MS);
+      ui.result = r.result.map((e) => ({ tag: tagOf(e.pid), alias: alias(g, e.pid), points: e.points, car: e.car, score: e.score, hard: e.hardOk, rows: e.rows }));
+    }
+  }
+  if (g.status === 'preparing') ui.prep_at = g.prep_at;
+  return ui;
+}
+
+// ---------------------------------------------------------------- punt d'entrada (Make)
+function run(input) {
+  const msgs = [];
+  const ctx = { now: input.now || new Date().toISOString(), rand: Math.random, task: 'none', prompt: '', say: (t) => msgs.push(String(t).slice(0, 300)), ai: (p) => { ctx.task = 'challenge'; ctx.prompt = p; } };
+  let g = parseJSON(input.game_json, null);
+  if (g && g.v !== 2) g = null;
+  if (input.mode === 'apply') g = apply(g, ctx, input.ai_raw);
+  else {
+    const pid = String(input.pid || ''), msg = Number(input.msg) || 0;
+    // Cada pàgina numera les seves ordres: una ordre repetida o antiga no es torna a aplicar.
+    if (g && g.seen && msg && (g.seen[pid] || 0) >= msg) return { route: 'none', prompt: '', game_json: '', ui: '', text: '', seq: 0 };
+    mergePicks(g, parsePicks(input.picks));
+    g = step(g, { room: String(input.room || ''), pid, name: input.name, text: input.text }, ctx);
+    if (g && msg) g.seen[pid] = msg;
+  }
+  return {
+    route: ctx.task, prompt: ctx.prompt,
+    game_json: g ? JSON.stringify(g) : '',
+    ui: JSON.stringify(uiState(g, ctx)),
+    text: msgs.join('\n'),
+    seq: Date.now(),
+  };
+}
+return run(input);

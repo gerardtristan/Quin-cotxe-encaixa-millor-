@@ -1,0 +1,720 @@
+<title>Quin encaixa millor?</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Oswald:wght@500;600;700&display=swap">
+<style>
+/* Una sola columna central com un Wordle: capçalera, fila de rondes, tauler de la ronda i teclat de resposta a sota. Tema fosc de curses, triat expressament. */
+:root {
+  color-scheme: dark;
+  --asfalt: #0D0D0F;        /* fons */
+  --asfalt-alt: #121216;    /* superfície neumòrfica */
+  --pista: #2A2A2E;         /* gris de suport */
+  --metall: #8A8A93;        /* gris metal·litzat, text secundari */
+  --blanc: #F2F2F2;         /* text */
+  --vermell: #E10600;       /* accent de competició */
+  --ok: #1E9E54;            /* compleix */
+  --mig: #D99A1E;           /* parcial */
+  --no: #3A3A40;            /* no compleix */
+  --ombra-fosca: rgba(0, 0, 0, .72);
+  --ombra-clara: rgba(255, 255, 255, .045);
+  --display: "Oswald", "Arial Narrow", "Roboto Condensed", Impact, sans-serif;
+  --text: "Barlow", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --r: 16px;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  background: var(--asfalt);
+  color: var(--blanc);
+  font-family: var(--text);
+  font-size: 16px;
+  line-height: 1.45;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 0 32px;
+}
+.app { max-width: 520px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; }
+
+/* Neumorfisme fosc: relleu i enfonsat */
+.relleu { background: var(--asfalt-alt); border-radius: var(--r); box-shadow: 7px 7px 16px var(--ombra-fosca), -6px -6px 14px var(--ombra-clara); }
+.enfonsat { background: var(--asfalt); border-radius: 12px; box-shadow: inset 4px 4px 9px var(--ombra-fosca), inset -3px -3px 8px var(--ombra-clara); }
+
+/* Capçalera */
+header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-block: 14px 12px; border-bottom: 1px solid var(--pista); }
+.logo { font-family: var(--display); font-weight: 700; font-style: italic; text-transform: uppercase; letter-spacing: .02em; font-size: clamp(22px, 6vw, 30px); line-height: 1; margin: 0; display: flex; align-items: center; gap: 10px; }
+.logo .ratlles { width: 26px; height: 18px; flex: none; background: repeating-linear-gradient(115deg, var(--vermell) 0 5px, transparent 5px 9px); }
+.logo em { color: var(--vermell); font-style: italic; }
+.icones { display: flex; gap: 10px; }
+.boto-icona { width: 40px; height: 40px; border: 0; color: var(--blanc); font: 600 17px var(--display); cursor: pointer; display: grid; place-items: center; }
+.boto-icona:active { box-shadow: inset 3px 3px 7px var(--ombra-fosca), inset -2px -2px 6px var(--ombra-clara); }
+
+/* Fila de rondes, com les files del Wordle */
+.rondes { display: grid; grid-template-columns: repeat(var(--n, 5), 1fr); gap: 8px; }
+.rondes.moltes { gap: 5px; }
+.casella { aspect-ratio: 1; max-width: 100%; display: grid; place-items: center; font: 600 clamp(14px, 4vw, 20px) var(--display); color: var(--metall); border-radius: 10px; }
+.casella.actual { color: var(--blanc); box-shadow: 0 0 0 2px var(--vermell), 7px 7px 16px var(--ombra-fosca), -6px -6px 14px var(--ombra-clara); }
+.casella.guanya { background: var(--ok); color: #fff; box-shadow: none; }
+.casella.perd { background: var(--no); color: var(--blanc); box-shadow: none; }
+.casella.empat { background: var(--mig); color: #1a1205; box-shadow: none; }
+.casella.anul { color: var(--metall); text-decoration: line-through; opacity: .55; }
+
+/* Tauler */
+.tauler { padding: 20px; display: flex; flex-direction: column; gap: 16px; }
+.eyebrow { font: 600 12px var(--text); letter-spacing: .14em; text-transform: uppercase; color: var(--metall); margin: 0; display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.titol { font-family: var(--display); font-weight: 600; text-transform: uppercase; font-size: clamp(24px, 7vw, 32px); line-height: 1.05; margin: 0; text-wrap: balance; }
+.criteris { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.criteris li { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 10px 12px; font-size: 15px; }
+.criteris li span:first-child { min-width: 0; }
+.xip { flex: none; font: 600 11px var(--text); letter-spacing: .08em; text-transform: uppercase; padding: 3px 8px; border-radius: 999px; border: 1px solid var(--pista); color: var(--metall); }
+.xip.dur { border-color: var(--vermell); color: #ff6a63; }
+
+/* Cronòmetre */
+.cronometre { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 16px; }
+.rellotge { position: relative; width: 92px; height: 92px; border-radius: 50%; display: grid; place-items: center; }
+.rellotge svg { position: absolute; inset: 8px; width: calc(100% - 16px); height: calc(100% - 16px); transform: rotate(-90deg); }
+.rellotge circle { fill: none; stroke-width: 6; }
+.rellotge .fons { stroke: var(--pista); }
+.rellotge .arc { stroke: var(--vermell); stroke-linecap: round; transition: stroke-dashoffset 1s linear; }
+.rellotge .xifra { font: 700 32px var(--display); font-variant-numeric: tabular-nums; position: relative; }
+.rellotge.urgent .xifra { color: var(--vermell); animation: batec 1s ease-in-out infinite; }
+@keyframes batec { 50% { transform: scale(1.12); } }
+.cronometre p { margin: 0; color: var(--metall); font-size: 15px; }
+.cronometre strong { color: var(--blanc); font-weight: 600; }
+
+/* Resposta amb autocompletat */
+.resposta { display: flex; flex-direction: column; gap: 10px; position: relative; }
+.resposta label { font: 600 13px var(--text); letter-spacing: .1em; text-transform: uppercase; color: var(--metall); }
+.camp { display: flex; gap: 10px; }
+.camp input { flex: 1; min-width: 0; border: 0; padding: 14px 14px; font: 500 17px var(--text); color: var(--blanc); outline: none; }
+.camp input:focus-visible { box-shadow: inset 4px 4px 9px var(--ombra-fosca), inset -3px -3px 8px var(--ombra-clara), 0 0 0 2px var(--vermell); }
+.llista { list-style: none; margin: 0; padding: 6px; position: absolute; left: 0; right: 0; top: 100%; margin-top: 6px; z-index: 5; max-height: 290px; overflow-y: auto; }
+.llista li { padding: 9px 10px; border-radius: 10px; cursor: pointer; display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+.llista li[aria-selected="true"], .llista li:hover { background: var(--pista); }
+.llista .nom { font-weight: 600; min-width: 0; }
+.llista .nom mark { background: none; color: #ff6a63; }
+.llista .dades { flex: none; color: var(--metall); font-size: 13px; font-variant-numeric: tabular-nums; }
+.llista .buit { color: var(--metall); cursor: default; }
+.ajuda-camp { margin: 0; font-size: 13px; color: var(--metall); min-height: 1.2em; }
+
+.boto { border: 0; cursor: pointer; font: 600 16px var(--display); letter-spacing: .08em; text-transform: uppercase; padding: 14px 20px; border-radius: 12px; color: var(--blanc); background: var(--asfalt-alt); box-shadow: 6px 6px 14px var(--ombra-fosca), -5px -5px 12px var(--ombra-clara); }
+.boto.principal { background: var(--vermell); box-shadow: 6px 6px 14px var(--ombra-fosca), -5px -5px 12px var(--ombra-clara), inset 0 1px 0 rgba(255,255,255,.18); }
+.boto:active { transform: translateY(1px); box-shadow: inset 3px 3px 8px rgba(0,0,0,.45); }
+.boto:disabled { opacity: .45; cursor: not-allowed; }
+.boto:focus-visible, .boto-icona:focus-visible, select:focus-visible { outline: 2px solid var(--blanc); outline-offset: 3px; }
+
+/* Veredicte: graella tipus Wordle */
+.duel { display: grid; grid-template-columns: minmax(0, 1fr) 64px 64px; gap: 8px; align-items: center; }
+.duel .cap { font: 600 12px var(--text); letter-spacing: .1em; text-transform: uppercase; color: var(--metall); text-align: center; }
+.duel .cap:first-child { text-align: left; }
+.duel .etiqueta { font-size: 14px; min-width: 0; }
+.fitxa { min-height: 56px; border-radius: 10px; display: grid; place-items: center; text-align: center; font: 600 12px var(--text); line-height: 1.1; padding: 4px 3px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.fitxa b { display: block; font: 700 18px var(--display); }
+.fitxa.ok { background: var(--ok); color: #fff; }
+.fitxa.mig { background: var(--mig); color: #1a1205; }
+.fitxa.no { background: var(--no); color: var(--blanc); }
+.fitxa.nd { background: transparent; border: 2px dashed var(--pista); color: var(--metall); }
+.fitxa.gira { animation: gira .5s ease both; animation-delay: var(--d, 0s); }
+@keyframes gira { from { transform: rotateX(90deg); } to { transform: rotateX(0); } }
+.cotxes { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.cotxe { padding: 12px; }
+.cotxe small { display: block; font: 600 11px var(--text); letter-spacing: .1em; text-transform: uppercase; color: var(--metall); }
+.cotxe strong { display: block; font-family: var(--display); font-weight: 500; font-size: 17px; line-height: 1.15; margin-top: 4px; }
+.cotxe span { display: block; font-size: 13px; color: var(--metall); margin-top: 4px; }
+.banner { text-align: center; padding: 14px; font-family: var(--display); text-transform: uppercase; font-size: 24px; letter-spacing: .04em; }
+.banner.guanya { color: var(--ok); }
+.banner.perd { color: #ff6a63; }
+.banner.empat { color: var(--mig); }
+.banner small { display: block; font: 500 14px var(--text); letter-spacing: 0; text-transform: none; color: var(--metall); margin-top: 4px; }
+.puntuacio { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-variant-numeric: tabular-nums; }
+.puntuacio div { padding: 10px 12px; display: flex; justify-content: space-between; align-items: baseline; }
+.puntuacio b { font: 700 24px var(--display); }
+
+/* Inici */
+.inici { padding: 22px 20px; display: flex; flex-direction: column; gap: 16px; }
+.inici p { margin: 0; color: var(--metall); }
+.opcions { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.opcions label, .nom-jugador label { display: flex; flex-direction: column; gap: 6px; font: 600 13px var(--text); letter-spacing: .1em; text-transform: uppercase; color: var(--metall); }
+.opcions select, .nom-jugador input { border: 0; padding: 12px; font: 500 16px var(--text); color: var(--blanc); text-transform: none; letter-spacing: 0; }
+.nom-jugador input:focus-visible { outline: 2px solid var(--vermell); outline-offset: 2px; }
+
+.preparant { padding: 28px 20px; display: flex; flex-direction: column; align-items: center; gap: 14px; text-align: center; color: var(--metall); }
+.semafor { display: flex; gap: 10px; }
+.semafor i { width: 18px; height: 18px; border-radius: 50%; background: var(--pista); animation: llum 1.8s infinite; }
+.semafor i:nth-child(2) { animation-delay: .3s; } .semafor i:nth-child(3) { animation-delay: .6s; }
+@keyframes llum { 0%, 60%, 100% { background: var(--pista); } 20%, 40% { background: var(--vermell); box-shadow: 0 0 12px var(--vermell); } }
+
+.peu { font-size: 12px; color: var(--metall); text-align: center; margin: 0; }
+.peu a { color: var(--blanc); }
+.mode.viu { border-color: var(--ok); color: #4cc983; }
+.accions { display: flex; flex-wrap: wrap; gap: 10px; }
+.accions .boto { flex: 1 1 160px; }
+.boto.discret { background: none; box-shadow: none; color: var(--metall); font: 500 14px var(--text); letter-spacing: 0; text-transform: none; padding: 6px; align-self: center; text-decoration: underline; }
+.avis { margin: 0; padding: 10px 12px; font-size: 14px; color: #ffb3ae; border-left: 3px solid var(--vermell); }
+.registre { font-size: 14px; color: var(--metall); }
+.registre summary { cursor: pointer; font: 600 12px var(--text); letter-spacing: .1em; text-transform: uppercase; padding: 4px 0; }
+.registre ol { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; max-height: 320px; overflow-y: auto; }
+.registre li { white-space: pre-wrap; overflow-wrap: anywhere; padding: 10px 12px; color: #cfcfd4; font-size: 13px; }
+.criteris small { color: var(--metall); font-size: 13px; }
+.fitxa { font-size: 11px; overflow-wrap: break-word; hyphens: auto; }
+.mode { display: inline-block; font: 600 11px var(--text); letter-spacing: .1em; text-transform: uppercase; padding: 3px 8px; border-radius: 999px; border: 1px solid var(--mig); color: var(--mig); }
+
+dialog { border: 0; padding: 0; max-width: min(480px, calc(100vw - 32px)); color: var(--blanc); }
+dialog::backdrop { background: rgba(0,0,0,.7); }
+.dialeg { padding: 22px; display: flex; flex-direction: column; gap: 12px; }
+.dialeg h2 { font-family: var(--display); text-transform: uppercase; margin: 0; font-size: 22px; }
+.dialeg p, .dialeg li { margin: 0; color: #cfcfd4; font-size: 15px; }
+.dialeg ol { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; }
+
+@media (max-width: 420px) {
+  .duel { grid-template-columns: minmax(0, 1fr) 54px 54px; }
+  .opcions { grid-template-columns: 1fr; }
+  .cronometre { grid-template-columns: 1fr; justify-items: center; text-align: center; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+</style>
+
+<div class="app">
+  <header>
+    <h1 class="logo"><span class="ratlles" aria-hidden="true"></span><span>Quin encaixa <em>millor?</em></span></h1>
+    <div class="icones">
+      <button class="boto-icona relleu" id="obre-ajuda" type="button" aria-label="Com es juga">?</button>
+    </div>
+  </header>
+
+  <div class="rondes" id="rondes" aria-label="Rondes de la partida"></div>
+
+  <main id="pantalla" aria-live="polite"></main>
+
+  <p class="peu" id="peu"></p>
+</div>
+
+<dialog id="ajuda" class="relleu">
+  <div class="dialeg">
+    <h2>Com es juga</h2>
+    <ol>
+      <li>A cada ronda surt un repte amb criteris. Els marcats com a <b>imprescindible</b> s'han de complir sí o sí.</li>
+      <li>Tens <b>30 segons</b> per triar el cotxe que hi encaixa millor. Escriu i tria'l de la llista.</li>
+      <li>El Rival IA ja ha triat el seu. El jutge els compara criteri per criteri: verd compleix, groc a mitges, gris no, ratllat sense dada.</li>
+      <li>Guanya qui encaixa millor. Si no tries a temps, la ronda és per al rival.</li>
+    </ol>
+    <button class="boto" type="button" id="tanca-ajuda">Entesos</button>
+  </div>
+</dialog>
+
+<script>
+// Dades: [clau, nom, any inici, any final (0 = encara es fa), carrosseries, tracció (F/R/4), motor (F/M/R), CV mín, CV màx, kg, llargada mm]
+const COTXES = /*COTXES*/[];
+const TEMPS = 30;
+const DEMO = new URLSearchParams(location.search).has('demo');
+const ANY = new Date().getFullYear();
+
+const $ = (s) => document.querySelector(s);
+const fold = (s) => String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const cotxe = (r) => ({ key: r[0], nom: r[1], de: r[2], a: r[3] || ANY, ara: !r[3], cos: r[4].split(' ').filter(Boolean), traccio: r[5], motor: r[6], cvMin: r[7], cv: r[8], kg: r[9], mm: r[10] });
+const CARS = COTXES.map(cotxe);
+const anys = (c) => c.de ? `${c.de}–${c.ara ? 'avui' : c.a}` : '';
+
+// ------------------------------------------------------------ reptes de la vista prèvia (el jutge compara dades de les fitxes)
+const encavalca = (c, de, a) => c.de && c.de <= a && c.a >= de;
+const R = {
+  cos: (llista, etiqueta) => ({ etiqueta, tipus: 'dur', valor: (c) => c.cos.length ? c.cos.join(', ') : null, nota: (c) => !c.cos.length ? null : llista.some((t) => c.cos.includes(t)) ? 1 : 0 }),
+  anys: (de, a) => ({ etiqueta: `Fabricat entre ${de} i ${a}`, tipus: 'rang', valor: anys, nota: (c) => !c.de ? null : encavalca(c, de, a) ? 1 : Math.max(0, 1 - 0.25 * Math.min(Math.abs(c.de - a), Math.abs(c.a - de))) }),
+  cvMin: (n) => ({ etiqueta: `Almenys ${n} CV`, tipus: 'num', valor: (c) => c.cv ? c.cv + ' CV' : null, nota: (c) => !c.cv ? null : c.cv >= n ? 1 : Math.max(0, 1 - (n - c.cv) / (n * 0.25)) }),
+  kgMax: (n) => ({ etiqueta: `Com a màxim ${n} kg`, tipus: 'num', valor: (c) => c.kg ? c.kg + ' kg' : null, nota: (c) => !c.kg ? null : c.kg <= n ? 1 : Math.max(0, 1 - (c.kg - n) / (n * 0.15)) }),
+  mmMin: (n) => ({ etiqueta: `Almenys ${(n / 1000).toLocaleString('ca')} m de llarg`, tipus: 'num', valor: (c) => c.mm ? (c.mm / 1000).toLocaleString('ca', { minimumFractionDigits: 2 }) + ' m' : null, nota: (c) => !c.mm ? null : c.mm >= n ? 1 : Math.max(0, 1 - (n - c.mm) / (n * 0.08)) }),
+  traccio: (lletres, etiqueta) => ({ etiqueta, tipus: 'cat', valor: (c) => ({ F: 'davantera', R: 'posterior', 4: 'integral' })[c.traccio[0]] || null, nota: (c) => !c.traccio ? null : [...c.traccio].some((l) => lletres.includes(l)) ? 1 : 0 }),
+  motorCentral: () => ({ etiqueta: 'Motor central o posterior', tipus: 'cat', valor: (c) => ({ F: 'davanter', M: 'central', R: 'posterior' })[c.motor] || null, nota: (c) => !c.motor ? null : c.motor !== 'F' ? 1 : 0 }),
+};
+const REPTES = [
+  { titol: 'Hot hatch per a la carretera de muntanya', criteris: [R.cos(['hatch'], 'Carrosseria hatchback'), R.anys(2000, 2015), R.cvMin(180), R.traccio('F4', 'Tracció davantera o integral')] },
+  { titol: 'Esportiu lleuger de tracció posterior', criteris: [R.cos(['coupe', 'cabrio'], 'Coupé o descapotable'), R.traccio('R', 'Tracció posterior'), R.kgMax(1300), R.cvMin(150)] },
+  { titol: 'SUV familiar per anar a esquiar', criteris: [R.cos(['suv'], 'SUV o tot terreny'), R.traccio('4', 'Tracció integral'), R.anys(2012, ANY), R.mmMin(4500)] },
+  { titol: 'Berlina ràpida per a autopista', criteris: [R.cos(['sedan'], 'Carrosseria sedan'), R.cvMin(300), R.anys(2005, 2022), R.mmMin(4700)] },
+  { titol: 'Superesportiu amb el motor darrere teu', criteris: [R.cos(['coupe', 'cabrio'], 'Coupé o descapotable'), R.motorCentral(), R.cvMin(450), R.anys(1985, ANY)] },
+  { titol: 'Utilitari clàssic per a la ciutat', criteris: [R.cos(['hatch'], 'Carrosseria hatchback'), R.anys(1975, 1995), R.mmMin(3300), R.kgMax(950)] },
+  { titol: 'Familiar per carregar-ho tot', criteris: [R.cos(['familiar', 'mpv'], 'Familiar o monovolum'), R.anys(2000, ANY), R.mmMin(4600), R.cvMin(120)] },
+];
+const PES = { dur: 3, cat: 3, rang: 2, num: 2 };
+
+function avalua(repte, c) {
+  let num = 0, den = 0, durs = true;
+  const files = repte.criteris.map((k) => {
+    const n = k.nota(c), v = k.valor(c);
+    // Una dada que falta a la fitxa no puntua.
+    num += PES[k.tipus] * (n || 0); den += PES[k.tipus];
+    if (k.tipus === 'dur' && n !== 1) durs = false;
+    return { n, v };
+  });
+  return { files, durs, punts: den ? Math.round(100 * num / den) : 0, complet: files.every((f) => f.n !== null) };
+}
+function jutja(repte, a, b) {
+  const ea = avalua(repte, a), eb = avalua(repte, b);
+  if (ea.durs !== eb.durs) return { guanya: ea.durs ? 'a' : 'b', motiu: 'compleix l’imprescindible', ea, eb };
+  if (Math.abs(ea.punts - eb.punts) >= 5) return { guanya: ea.punts > eb.punts ? 'a' : 'b', motiu: `${Math.max(ea.punts, eb.punts)} % contra ${Math.min(ea.punts, eb.punts)} %`, ea, eb };
+  return { guanya: 'empat', motiu: 'encaixen gairebé igual', ea, eb };
+}
+
+// ------------------------------------------------------------ estat de la partida
+const S = { pas: 'inici', nom: '', rondes: 5, ronda: 0, resultats: [], repte: null, rival: null, tria: null, temps: TEMPS, rellotge: null, jutjat: null, usats: [] };
+try { S.nom = localStorage.getItem('qem-nom') || ''; } catch (e) {}
+
+function pintaRondes() {
+  const el = $('#rondes');
+  el.style.setProperty('--n', S.rondes);
+  el.classList.toggle('moltes', S.rondes > 5);
+  el.innerHTML = Array.from({ length: S.rondes }, (_, i) => {
+    const r = S.resultats[i];
+    const cls = r === 'a' ? 'guanya' : r === 'b' ? 'perd' : r === 'empat' ? 'empat' : (i === S.ronda - 1 && S.pas !== 'inici' && S.pas !== 'final') ? 'actual' : '';
+    const nom = r === 'a' ? 'guanyada' : r === 'b' ? 'perduda' : r === 'empat' ? 'empatada' : 'pendent';
+    return `<div class="casella relleu ${cls}" aria-label="Ronda ${i + 1}: ${nom}">${i + 1}</div>`;
+  }).join('');
+}
+function marcador() { return { jo: S.resultats.reduce((s, r) => s + (r === 'a' ? 1 : r === 'empat' ? .5 : 0), 0), ia: S.resultats.reduce((s, r) => s + (r === 'b' ? 1 : r === 'empat' ? .5 : 0), 0) }; }
+const pts = (n) => String(n).replace('.', ',');
+
+function pinta() {
+  if (!DEMO && S.pas !== 'inici') return pintaViu();
+  pintaRondes();
+  const p = $('#pantalla');
+  if (S.pas === 'inici') {
+    p.innerHTML = `<section class="inici relleu">
+      <h2 class="titol">Tria el cotxe que encaixa millor</h2>
+      <p>Surt un repte, tens 30 segons per triar un cotxe de la base de dades i el jutge el compara amb el del Rival IA criteri per criteri${DEMO ? '' : ', amb fonts. Preparar cada repte pot trigar un minut'}.</p>
+      <div class="nom-jugador"><label for="nom">El teu nom<input id="nom" class="enfonsat" maxlength="30" autocomplete="nickname" value="${esc(S.nom)}" placeholder="Pilot"></label></div>
+      <div class="opcions">
+        <label for="n-rondes">Rondes<select id="n-rondes" class="enfonsat"><option value="5">5</option><option value="10">10</option><option value="15">15</option></select></label>
+        <label for="rival">Rival<select id="rival" class="enfonsat"><option>Rival IA</option></select></label>
+      </div>
+      <button class="boto principal" id="comenca" type="button">Comença la partida</button>
+    </section>`;
+    $('#n-rondes').value = String(S.rondes);
+    $('#comenca').onclick = () => {
+      S.nom = $('#nom').value.trim() || 'Pilot';
+      try { localStorage.setItem('qem-nom', S.nom); } catch (e) {}
+      S.rondes = Number($('#n-rondes').value); S.ronda = 0; S.resultats = []; S.usats = [];
+      if (DEMO) novaRonda(); else comencaViu();
+    };
+    return;
+  }
+  if (S.pas === 'preparant') {
+    p.innerHTML = `<section class="preparant relleu"><div class="semafor" aria-hidden="true"><i></i><i></i><i></i></div><p>Preparo el repte de la ronda ${S.ronda}…</p></section>`;
+    return;
+  }
+  const m = marcador();
+  const cap = `<p class="eyebrow"><span>Ronda ${S.ronda} de ${S.rondes}</span><span>${esc(S.nom)} ${pts(m.jo)} · ${pts(m.ia)} Rival IA</span></p>
+    <h2 class="titol">${esc(S.repte.titol)}</h2>`;
+  if (S.pas === 'triant') {
+    p.innerHTML = `<section class="tauler relleu">
+      ${cap}
+      <ul class="criteris">${S.repte.criteris.map((k) => `<li class="enfonsat"><span>${esc(k.etiqueta)}</span><span class="xip ${k.tipus === 'dur' ? 'dur' : ''}">${k.tipus === 'dur' ? 'Imprescindible' : 'Criteri'}</span></li>`).join('')}</ul>
+      <div class="cronometre">
+        <div class="rellotge relleu" id="rellotge" role="timer" aria-label="Temps restant">
+          <svg viewBox="0 0 100 100" aria-hidden="true"><circle class="fons" cx="50" cy="50" r="44"></circle><circle class="arc" id="arc" cx="50" cy="50" r="44" stroke-dasharray="276.5" stroke-dashoffset="0"></circle></svg>
+          <span class="xifra" id="xifra">${S.temps}</span>
+        </div>
+        <p>El <strong>Rival IA</strong> ja ha triat. Escriu marca o model i tria el cotxe de la llista abans que s'acabi el temps.</p>
+      </div>
+      <form class="resposta" id="form" autocomplete="off">
+        <label for="cerca">El teu cotxe</label>
+        <div class="camp">
+          <input id="cerca" class="enfonsat" role="combobox" aria-expanded="false" aria-controls="llista" aria-autocomplete="list" placeholder="Ex.: Golf Mk7, MX-5, Clio…">
+          <button class="boto principal" id="envia" type="submit" disabled>Envia</button>
+        </div>
+        <ul class="llista relleu" id="llista" role="listbox" hidden></ul>
+        <p class="ajuda-camp" id="ajuda-camp">${CARS.length} cotxes a la base de dades.</p>
+      </form>
+    </section>`;
+    preparaCerca(() => envia());
+    actualitzaRellotge();
+    $('#cerca').focus({ preventScroll: true });
+    return;
+  }
+  if (S.pas === 'veredicte' || S.pas === 'final') {
+    const v = S.jutjat, jo = S.tria, ia = S.rival;
+    const fitxa = (f, i) => {
+      const cls = f.n === null ? 'nd' : f.n >= 1 ? 'ok' : f.n > 0 ? 'mig' : 'no';
+      const signe = f.n === null ? '?' : f.n >= 1 ? '✓' : f.n > 0 ? '≈' : '✗';
+      return `<div class="fitxa gira ${cls}" style="--d:${(i * 0.18).toFixed(2)}s"><span><b>${signe}</b>${esc(f.v ?? 'sense dada')}</span></div>`;
+    };
+    const ban = v.guanya === 'a' ? ['guanya', 'Guanyes la ronda'] : v.guanya === 'b' ? ['perd', 'Guanya el Rival IA'] : ['empat', 'Empat'];
+    const motiu = v.temps ? 'No has triat cap cotxe a temps.' : v.guanya === 'empat' ? 'Encaixen gairebé igual.' : v.ea.durs !== v.eb.durs ? 'Només un dels dos compleix l’imprescindible.' : '';
+    const final = S.pas === 'final';
+    const mm = marcador();
+    p.innerHTML = `<section class="tauler relleu">
+      ${cap}
+      <div class="cotxes">
+        <div class="cotxe enfonsat"><small>${esc(S.nom)}</small><strong>${jo ? esc(jo.nom) : 'Sense cotxe'}</strong><span>${jo ? esc(anys(jo)) : '—'}</span></div>
+        <div class="cotxe enfonsat"><small>Rival IA</small><strong>${esc(ia.nom)}</strong><span>${esc(anys(ia))}</span></div>
+      </div>
+      ${jo ? `<div class="duel" role="table" aria-label="Comparació per criteris">
+        <span class="cap" role="columnheader">Criteri</span><span class="cap" role="columnheader">Tu</span><span class="cap" role="columnheader">IA</span>
+        ${S.repte.criteris.map((k, i) => `<span class="etiqueta" role="cell">${esc(k.etiqueta)}${k.tipus === 'dur' ? ' <span class="xip dur">Imp.</span>' : ''}</span>${fitxa(v.ea.files[i], i * 2)}${fitxa(v.eb.files[i], i * 2 + 1)}`).join('')}
+      </div>` : ''}
+      <div class="banner enfonsat ${ban[0]}">${ban[1]}<small>${esc(motiu)}${!v.temps ? ` Encaix: tu ${v.ea.punts} %, Rival IA ${v.eb.punts} %.` : ''}</small></div>
+      ${final ? `<div class="puntuacio"><div class="enfonsat"><span>${esc(S.nom)}</span><b>${pts(mm.jo)}</b></div><div class="enfonsat"><span>Rival IA</span><b>${pts(mm.ia)}</b></div></div>
+        <div class="banner ${mm.jo > mm.ia ? 'guanya' : mm.jo < mm.ia ? 'perd' : 'empat'}">${mm.jo > mm.ia ? 'Has guanyat la partida' : mm.jo < mm.ia ? 'El Rival IA guanya la partida' : 'Partida empatada'}</div>
+        <button class="boto principal" id="seguent" type="button">Nova partida</button>`
+      : `<button class="boto principal" id="seguent" type="button">Ronda següent</button>`}
+    </section>`;
+    $('#seguent').onclick = () => { if (final) { S.pas = 'inici'; pinta(); } else novaRonda(); };
+    $('#seguent').focus({ preventScroll: true });
+  }
+}
+
+// ------------------------------------------------------------ cercador amb autocompletat
+function cerca(q) {
+  const parts = fold(q).split(/\s+/).filter(Boolean);
+  if (!parts.length) return [];
+  const out = [];
+  for (const c of CARS) {
+    const f = fold(c.nom + ' ' + c.de);
+    if (parts.every((p) => f.includes(p))) out.push([fold(c.nom).startsWith(parts[0]) ? 0 : 1, c]);
+    if (out.length > 200) break;
+  }
+  return out.sort((x, y) => x[0] - y[0] || x[1].nom.localeCompare(y[1].nom)).slice(0, 8).map((x) => x[1]);
+}
+function ressalta(nom, q) {
+  let h = esc(nom);
+  for (const p of fold(q).split(/\s+/).filter((x) => x.length > 1)) {
+    const i = fold(nom).indexOf(p);
+    if (i >= 0) { const tros = esc(nom.slice(i, i + p.length)); h = h.replace(tros, `<mark>${tros}</mark>`); }
+  }
+  return h;
+}
+function preparaCerca(enEnviar) {
+  const inp = $('#cerca'), ll = $('#llista'), env = $('#envia'), aj = $('#ajuda-camp');
+  let res = [], sel = 0;
+  const tanca = () => { ll.hidden = true; inp.setAttribute('aria-expanded', 'false'); };
+  const tria = (c) => { S.tria = c; inp.value = c.nom; env.disabled = false; aj.textContent = `${anys(c)} · ${c.cv ? c.cv + ' CV' : 'potència sense dada'}${c.kg ? ' · ' + c.kg + ' kg' : ''}`; tanca(); };
+  const mostra = () => {
+    if (!res.length) { ll.innerHTML = `<li class="buit">Cap cotxe de la base de dades coincideix.</li>`; }
+    else ll.innerHTML = res.map((c, i) => `<li role="option" id="op-${i}" aria-selected="${i === sel}" data-i="${i}"><span class="nom">${ressalta(c.nom, inp.value)}</span><span class="dades">${esc(anys(c))}</span></li>`).join('');
+    ll.hidden = false; inp.setAttribute('aria-expanded', 'true');
+    if (res.length) inp.setAttribute('aria-activedescendant', 'op-' + sel);
+  };
+  inp.addEventListener('input', () => {
+    S.tria = null; env.disabled = true; aj.textContent = 'Tria un cotxe de la llista.';
+    res = cerca(inp.value); sel = 0;
+    if (inp.value.trim()) mostra(); else tanca();
+  });
+  inp.addEventListener('keydown', (e) => {
+    if (ll.hidden || !res.length) return;
+    if (e.key === 'ArrowDown') { sel = (sel + 1) % res.length; mostra(); e.preventDefault(); }
+    else if (e.key === 'ArrowUp') { sel = (sel - 1 + res.length) % res.length; mostra(); e.preventDefault(); }
+    else if (e.key === 'Enter') { tria(res[sel]); e.preventDefault(); }
+    else if (e.key === 'Escape') tanca();
+  });
+  ll.addEventListener('mousedown', (e) => { const li = e.target.closest('li[data-i]'); if (li) { e.preventDefault(); tria(res[Number(li.dataset.i)]); } });
+  inp.addEventListener('blur', () => setTimeout(tanca, 120));
+  $('#form').addEventListener('submit', (e) => { e.preventDefault(); if (S.tria) enEnviar(); });
+}
+
+// ------------------------------------------------------------ flux
+function novaRonda() {
+  S.ronda++; S.pas = 'preparant'; S.tria = null; pinta();
+  setTimeout(() => {
+    const lliures = REPTES.filter((r) => !S.usats.includes(r.titol));
+    S.repte = (lliures.length ? lliures : REPTES)[Math.floor(Math.random() * (lliures.length || REPTES.length))];
+    S.usats.push(S.repte.titol);
+    // El rival tria abans de veure el teu cotxe: un dels que encaixen millor, a l'atzar entre els bons.
+    const bons = CARS.map((c) => [avalua(S.repte, c), c]).filter(([e]) => e.durs && e.complet).sort((a, b) => b[0].punts - a[0].punts);
+    const top = bons.slice(0, 25);
+    S.rival = (top.length ? top[Math.floor(Math.random() * top.length)][1] : CARS[0]);
+    S.temps = TEMPS; S.pas = 'triant'; pinta();
+    clearInterval(S.rellotge);
+    const fi = Date.now() + TEMPS * 1000;
+    S.rellotge = setInterval(() => {
+      S.temps = Math.max(0, Math.ceil((fi - Date.now()) / 1000));
+      actualitzaRellotge();
+      if (S.temps <= 0) { clearInterval(S.rellotge); envia(true); }
+    }, 250);
+  }, 1400);
+}
+function actualitzaRellotge() {
+  const x = $('#xifra'), arc = $('#arc'), r = $('#rellotge');
+  if (!x) return;
+  x.textContent = S.temps;
+  arc.style.strokeDashoffset = String(276.5 * (1 - S.temps / TEMPS));
+  r.classList.toggle('urgent', S.temps <= 10);
+}
+function envia(perTemps) {
+  if (S.pas !== 'triant') return;
+  clearInterval(S.rellotge);
+  if (perTemps && !S.tria) S.jutjat = { guanya: 'b', temps: true, ea: null, eb: null };
+  else S.jutjat = jutja(S.repte, S.tria, S.rival);
+  S.resultats[S.ronda - 1] = S.jutjat.guanya;
+  S.pas = S.ronda >= S.rondes ? 'final' : 'veredicte';
+  pinta();
+}
+
+// ------------------------------------------------------------ partida en viu: els reptes i el jutge són a Make
+const ENTRADA = 'https://hook.eu1.make.com/duxywhmmhxx7eb6il9kxrdxb4oyhtinf';
+const RECULL = 'https://hook.eu1.make.com/hjw5kguhev3zj494uqito6q6kn9hkmcp';
+const CLAU = 'b28b13c9be8d3977a7e8b4e5'; // clau pública de la pàgina: només filtra trànsit a l'atzar, no és cap secret
+const ESPERA = ['preparing', 'confirming', 'verifying'];
+const RIVAL_IA = 'Rival IA';
+// Estat del client. La partida de debò és a Make: aquí només hi ha l'últim estat rebut i els missatges.
+const V = { chat: '', msg: 0, after: 0, des: 0, ui: null, rebut: 0, log: [], enviat: 0, cotxe: '', ordre: '', intents: 0,
+  temporitzador: null, limit: 0, rellotge: null, rellotgeDe: '', fi: 0, avis: '', atascat: false };
+
+function desaViu() {
+  try { localStorage.setItem('qem-viu', JSON.stringify({ chat: V.chat, msg: V.msg, after: V.after, ui: V.ui, log: V.log.slice(-20), enviat: V.enviat, cotxe: V.cotxe })); } catch (e) {}
+}
+function carregaViu() {
+  try {
+    const d = JSON.parse(localStorage.getItem('qem-viu') || 'null');
+    if (d && /^web-[a-z0-9]{8,32}$/.test(d.chat)) Object.assign(V, { chat: d.chat, msg: d.msg || 0, after: d.after || 0, ui: d.ui || null, log: d.log || [], enviat: d.enviat || 0, cotxe: d.cotxe || '' });
+  } catch (e) {}
+}
+const nouXat = () => 'web-' + Array.from(crypto.getRandomValues(new Uint8Array(12)), (b) => 'abcdefghijklmnopqrstuvwxyz0123456789'[b % 36]).join('');
+
+// Envia una ordre al motor. La resposta arriba més tard pels missatges, així que no cal llegir-la.
+async function ordre(text, primeraEspera) {
+  V.msg++; V.ordre = text; V.des = V.after; V.avis = ''; V.atascat = false; desaViu();
+  const q = new URLSearchParams({ k: CLAU, chat_id: V.chat, msg: String(V.msg), name: S.nom || 'Pilot', text });
+  try { await fetch(ENTRADA + '?' + q, { mode: 'no-cors', cache: 'no-store' }); }
+  catch (e) { V.avis = 'No he pogut enviar l’ordre. Comprova la connexió.'; V.atascat = true; pintaViu(); return; }
+  segueix(primeraEspera);
+}
+
+// Llegeix els missatges nous. Cada registre és seq␟text␟estat, separats per ␞.
+async function recull() {
+  const q = new URLSearchParams({ k: CLAU, chat_id: V.chat, after: String(V.after) });
+  const r = await fetch(RECULL + '?' + q, { cache: 'no-store' });
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  const recs = (await r.text()).split('\u001e').map((x) => x.split('\u001f')).filter((x) => x.length >= 3 && /^\s*\d+\s*$/.test(x[0]));
+  recs.sort((a, b) => Number(a[0]) - Number(b[0]));
+  let canvi = false;
+  for (const [seq, text, ui] of recs) {
+    const n = Number(seq);
+    if (n <= V.after) continue;
+    V.after = n; V.log.push(text.trim()); canvi = true;
+    try { if (ui.trim()) { V.ui = JSON.parse(ui); V.rebut = Date.now(); } } catch (e) {}
+  }
+  if (canvi) { V.log = V.log.slice(-30); V.avis = ''; desaViu(); }
+  return canvi;
+}
+
+// Només es pregunta al servidor mentre s'espera una resposta: mai durant els 30 segons de triar.
+function segueix(primera) {
+  clearTimeout(V.temporitzador);
+  V.limit = Date.now() + 240000;
+  V.temporitzador = setTimeout(pas, primera);
+}
+async function pas() {
+  try { if (await recull()) pintaViu(); }
+  catch (e) { V.avis = 'Sense connexió amb el servidor. Torno a provar…'; pintaViu(); }
+  const u = V.ui;
+  const enEspera = !u || (u.status === 'playing' && ESPERA.includes(u.round_status));
+  if (V.after > V.des && !enEspera) {
+    // Si el /temps ha arribat un pèl abans d'hora, la ronda encara és oberta: es torna a enviar.
+    if (V.ordre === '/temps' && u.status === 'playing' && u.round_status === 'open' && !u.my_car && V.intents < 3) {
+      V.intents++; V.temporitzador = setTimeout(() => ordre('/temps', 2500), 2500);
+    }
+    return;
+  }
+  if (Date.now() > V.limit) { V.avis = 'Encara no hi ha resposta del servidor.'; V.atascat = true; pintaViu(); return; }
+  V.temporitzador = setTimeout(pas, 4000);
+}
+
+function comencaViu() {
+  clearTimeout(V.temporitzador); clearInterval(V.rellotge);
+  Object.assign(V, { chat: nouXat(), msg: 0, after: 0, des: 0, ui: null, log: [], enviat: 0, cotxe: '', rellotgeDe: '' });
+  S.pas = 'viu'; pintaViu();
+  ordre('/nova ' + S.rondes, 12000);
+}
+function surtViu() {
+  clearTimeout(V.temporitzador); clearInterval(V.rellotge);
+  V.chat = ''; V.ui = null; desaViu();
+  try { localStorage.removeItem('qem-viu'); } catch (e) {}
+  S.pas = 'inici'; S.resultats = []; pinta();
+}
+
+// Cronòmetre a partir de l'hora límit del servidor; si el rellotge del dispositiu no quadra, es compta des que ha arribat l'estat.
+function arrencaRellotge() {
+  const u = V.ui;
+  if (V.rellotgeDe === u.deadline) return;
+  V.rellotgeDe = u.deadline;
+  const total = (u.turn_seconds || TEMPS) * 1000;
+  let rest = Date.parse(u.deadline) - Date.now();
+  if (!(rest <= total + 2000 && rest > -600000)) rest = Date.parse(u.deadline) - Date.parse(u.server_now) - (Date.now() - V.rebut);
+  V.fi = Date.now() + Math.min(total, rest);
+  clearInterval(V.rellotge);
+  const toc = () => {
+    S.temps = Math.max(0, Math.ceil((V.fi - Date.now()) / 1000));
+    actualitzaRellotge();
+    if (S.temps <= 0) {
+      clearInterval(V.rellotge);
+      if (V.enviat !== u.round) { V.intents = 0; V.enviat = u.round; V.cotxe = ''; pintaViu(); ordre('/temps', 2500); }
+    }
+  };
+  V.rellotge = setInterval(toc, 250); toc();
+}
+
+function enviaCotxe() {
+  const u = V.ui, c = S.tria;
+  if (!c || !u || V.enviat === u.round) return;
+  clearInterval(V.rellotge);
+  V.enviat = u.round; V.cotxe = c.nom;
+  pintaViu();
+  ordre(`#fitxa ${c.key}|${c.nom}|${anys(c)}`, 8000);
+}
+
+function pintaRondesViu() {
+  const u = V.ui, el = $('#rondes');
+  const n = (u && u.rounds) || S.rondes, res = (u && u.results) || [];
+  el.style.setProperty('--n', n);
+  el.classList.toggle('moltes', n > 5);
+  const cls = { win: 'guanya', lose: 'perd', tie: 'empat', annulled: 'anul' };
+  const nom = { win: 'guanyada', lose: 'perduda', tie: 'empatada', annulled: 'anul·lada' };
+  el.innerHTML = Array.from({ length: n }, (_, i) => {
+    const r = res[i], actual = !r && u && u.status === 'playing' && i === u.round - 1;
+    return `<div class="casella relleu ${cls[r] || (actual ? 'actual' : '')}" aria-label="Ronda ${i + 1}: ${nom[r] || 'pendent'}">${i + 1}</div>`;
+  }).join('');
+}
+
+const ST = { meets: ['ok', '✓', 'compleix'], partial: ['mig', '≈', 'a mitges'], fails: ['no', '✗', 'no compleix'], unverified: ['nd', '?', 'sense dada'] };
+const valor = (x) => typeof x !== 'number' ? String(x) : Number.isInteger(x) && x >= 1800 && x <= 2100 ? String(x) : x.toLocaleString('ca');
+function cela(row, i) {
+  const s = ST[row && row.status] || ST.unverified;
+  const v = row && row.value !== null && row.value !== undefined && row.value !== '' && row.value !== 1 ? valor(row.value) : s[2];
+  return `<div class="fitxa gira ${s[0]}" style="--d:${(i * 0.18).toFixed(2)}s"><span><b>${s[1]}</b>${esc(v)}</span></div>`;
+}
+function motiu(u, jo, ell) {
+  const v = u.verdict, c = (id) => (u.criteria.find((k) => k.id === id) || {}).label;
+  switch (v.decisive) {
+    case 'temps': return v.outcome === u.me ? 'El rival no ha triat a temps.' : 'No has triat cap cotxe a temps.';
+    case 'requisits_durs': return 'Només un dels dos compleix l’imprescindible.';
+    case 'puntuacio': return `Encaix: tu ${pts(jo.score)} %, ${RIVAL_IA} ${pts(ell.score)} %.`;
+    case 'desempat_durs': return 'Desempat: compleix més criteris imprescindibles.';
+    case 'desempat_criteri': return `Desempat pel criteri «${c(v.tiebreak) || 'principal'}».`;
+    case 'empat_real': return 'Encaixen gairebé igual.';
+    case 'mateix_cotxe': return 'Heu triat el mateix cotxe: la ronda es repeteix.';
+    case 'pendent': return 'Falten dades amb font per decidir-ho.';
+    default: return '';
+  }
+}
+function registre() {
+  if (!V.log.length) return '';
+  return `<details class="registre"><summary>Missatges del jutge</summary><ol>${V.log.slice(-10).reverse().map((t) => `<li class="enfonsat">${esc(t)}</li>`).join('')}</ol></details>`;
+}
+function avis() {
+  return V.avis ? `<p class="avis enfonsat" role="status">${esc(V.avis)}</p>${V.atascat ? '<button class="boto" id="torna" type="button">Torna a mirar</button>' : ''}` : '';
+}
+
+function pintaViu() {
+  const u = V.ui, p = $('#pantalla');
+  pintaRondesViu();
+  if (!V.chat || (u && u.status === 'cancelled')) return surtViu();
+  const espera = (text, nota) => `<section class="preparant relleu"><div class="semafor" aria-hidden="true"><i></i><i></i><i></i></div><p>${text}</p>${nota ? `<p>${nota}</p>` : ''}${avis()}</section>${registre()}`;
+  const lliga = () => {
+    const t = $('#torna'); if (t) t.onclick = () => { V.avis = ''; V.atascat = false; pintaViu(); segueix(0); };
+    const s = $('#surt'); if (s) s.onclick = () => { if (V.ui && V.ui.status === 'playing') ordre('/cancela', 60000); surtViu(); };
+  };
+  if (!u || u.status === 'lobby') { p.innerHTML = espera('Preparo la partida…', 'Pot trigar un minut.'); return lliga(); }
+  const rs = u.round_status;
+  if (u.status === 'playing' && (rs === 'preparing' || rs === 'confirming')) {
+    p.innerHTML = espera(`Preparo i comprovo el repte de la ronda ${u.round}…`, 'Busco cotxes que hi encaixin amb fonts. Pot trigar un minut.');
+    return lliga();
+  }
+  const jo = (u.board || []).find((b) => b.alias !== RIVAL_IA) || { alias: S.nom, points: 0 };
+  const ia = (u.board || []).find((b) => b.alias === RIVAL_IA) || { points: 0 };
+  const cap = `<p class="eyebrow"><span>Ronda ${u.round} de ${u.rounds}</span><span>${esc(jo.alias)} ${pts(jo.points)} · ${pts(ia.points)} ${RIVAL_IA}</span></p>
+    ${u.title ? `<h2 class="titol">${esc(u.title)}</h2>` : ''}`;
+  const surt = `<button class="boto discret" id="surt" type="button">Abandona la partida</button>`;
+  if (u.status === 'playing' && rs === 'preparing_failed') {
+    p.innerHTML = `<section class="tauler relleu">${cap}
+      <p>No he pogut preparar un repte amb fonts fiables aquesta vegada. No compta per a ningú.</p>${avis()}
+      <div class="accions"><button class="boto principal" id="reintenta" type="button">Torna-ho a provar</button></div>${surt}</section>${registre()}`;
+    $('#reintenta').onclick = () => { pintaViuEspera('Preparo un altre repte…'); ordre('/seguent', 12000); };
+    return lliga();
+  }
+  const criteris = (u.criteria || []).map((k) => `<li class="enfonsat"><span>${esc(k.label)}${k.definition ? `<br><small>${esc(k.definition)}</small>` : ''}</span><span class="xip ${k.hard ? 'dur' : ''}">${k.hard ? 'Imprescindible' : 'Criteri'}</span></li>`).join('');
+  if (u.status === 'playing' && rs === 'open' && !u.my_car && V.enviat !== u.round) {
+    S.tria = null;
+    p.innerHTML = `<section class="tauler relleu">
+      ${cap}
+      <ul class="criteris">${criteris}</ul>
+      <div class="cronometre">
+        <div class="rellotge relleu" id="rellotge" role="timer" aria-label="Temps restant">
+          <svg viewBox="0 0 100 100" aria-hidden="true"><circle class="fons" cx="50" cy="50" r="44"></circle><circle class="arc" id="arc" cx="50" cy="50" r="44" stroke-dasharray="276.5" stroke-dashoffset="0"></circle></svg>
+          <span class="xifra" id="xifra">${TEMPS}</span>
+        </div>
+        <p>El <strong>${RIVAL_IA}</strong> ja ha triat. Escriu marca o model i tria el cotxe de la llista abans que s'acabi el temps.</p>
+      </div>
+      <form class="resposta" id="form" autocomplete="off">
+        <label for="cerca">El teu cotxe</label>
+        <div class="camp">
+          <input id="cerca" class="enfonsat" role="combobox" aria-expanded="false" aria-controls="llista" aria-autocomplete="list" placeholder="Ex.: Golf Mk7, MX-5, Clio…">
+          <button class="boto principal" id="envia" type="submit" disabled>Envia</button>
+        </div>
+        <ul class="llista relleu" id="llista" role="listbox" hidden></ul>
+        <p class="ajuda-camp" id="ajuda-camp">${CARS.length} cotxes a la base de dades.</p>
+      </form>${avis()}
+    </section>`;
+    preparaCerca(enviaCotxe);
+    arrencaRellotge();
+    $('#cerca').focus({ preventScroll: true });
+    return lliga();
+  }
+  if (u.status === 'playing' && (rs === 'open' || rs === 'verifying')) {
+    const quin = u.my_car || V.cotxe;
+    p.innerHTML = `<section class="tauler relleu">${cap}<ul class="criteris">${criteris}</ul></section>` +
+      espera(quin ? `Has triat <strong>${esc(quin)}</strong>. El jutge el compara amb el del ${RIVAL_IA}…` : 'S’ha acabat el temps…', rs === 'verifying' ? 'Comprova cada criteri amb fonts. Pot trigar un minut.' : '');
+    return lliga();
+  }
+  // Veredicte (o ronda pendent de verificar, anul·lada o acabada)
+  const v = u.verdict || { a: {}, b: {} };
+  const me = u.me || 'a', ell = me === 'a' ? 'b' : 'a';
+  const vj = v[me] || {}, ve = v[ell] || {};
+  const files = (vj.rows || []).length || (ve.rows || []).length;
+  const fila = (k, i) => `<span class="etiqueta" role="cell">${esc(k.label)}${k.hard ? ' <span class="xip dur">Imp.</span>' : ''}</span>${cela((vj.rows || []).find((x) => x.id === k.id), i * 2)}${cela((ve.rows || []).find((x) => x.id === k.id), i * 2 + 1)}`;
+  const pendent = rs === 'pending_verification' || rs === 'verify_failed';
+  const ban = rs === 'annulled' ? ['empat', 'Ronda anul·lada'] : pendent ? ['empat', 'Pendent de verificar'] : v.outcome === 'tie' ? ['empat', 'Empat'] : v.outcome === me ? ['guanya', 'Guanyes la ronda'] : ['perd', `Guanya el ${RIVAL_IA}`];
+  const per = rs === 'verify_failed' ? 'No he pogut comprovar les dades amb fonts.' : motiu(u, vj, ve);
+  const final = u.status === 'finished';
+  const botons = final
+    ? `<div class="puntuacio"><div class="enfonsat"><span>${esc(jo.alias)}</span><b>${pts(jo.points)}</b></div><div class="enfonsat"><span>${RIVAL_IA}</span><b>${pts(ia.points)}</b></div></div>
+       <div class="banner ${jo.points > ia.points ? 'guanya' : jo.points < ia.points ? 'perd' : 'empat'}">${jo.points > ia.points ? 'Has guanyat la partida' : jo.points < ia.points ? `El ${RIVAL_IA} guanya la partida` : 'Partida empatada'}</div>
+       <button class="boto principal" id="nova" type="button">Nova partida</button>`
+    : pendent
+      ? `<div class="accions"><button class="boto principal" id="reverifica" type="button">Torna a comprovar</button><button class="boto" id="salta" type="button">Salta la ronda</button></div>`
+      : `<button class="boto principal" id="seguent" type="button">Ronda següent</button>`;
+  p.innerHTML = `<section class="tauler relleu">
+    ${cap}
+    <div class="cotxes">
+      <div class="cotxe enfonsat"><small>${esc(jo.alias)}</small><strong>${esc(vj.car || 'Sense cotxe')}</strong></div>
+      <div class="cotxe enfonsat"><small>${RIVAL_IA}</small><strong>${esc(ve.car || '—')}</strong></div>
+    </div>
+    ${files ? `<div class="duel" role="table" aria-label="Comparació per criteris">
+      <span class="cap" role="columnheader">Criteri</span><span class="cap" role="columnheader">Tu</span><span class="cap" role="columnheader">IA</span>
+      ${(u.criteria || []).map(fila).join('')}
+    </div>` : ''}
+    <div class="banner enfonsat ${ban[0]}">${ban[1]}<small>${esc(per)}</small></div>
+    ${avis()}${botons}${final ? '' : surt}
+  </section>${registre()}`;
+  const b = (id, fn) => { const el = $('#' + id); if (el) el.onclick = fn; };
+  b('seguent', () => { pintaViuEspera(`Preparo i comprovo el repte de la ronda ${u.round + 1}…`); ordre('/seguent', 12000); });
+  b('reverifica', () => { pintaViuEspera('Torno a comprovar les dades…'); ordre('/reverifica', 10000); });
+  b('salta', () => { ordre('/salta', 3000); });
+  b('nova', () => surtViu());
+  const focus = $('#seguent') || $('#nova') || $('#reverifica');
+  if (focus) focus.focus({ preventScroll: true });
+  lliga();
+}
+function pintaViuEspera(text) {
+  $('#pantalla').innerHTML = `<section class="preparant relleu"><div class="semafor" aria-hidden="true"><i></i><i></i><i></i></div><p>${text}</p></section>`;
+}
+
+$('#obre-ajuda').onclick = () => { const d = $('#ajuda'); if (d.showModal) d.showModal(); else d.setAttribute('open', ''); };
+$('#tanca-ajuda').onclick = () => { const d = $('#ajuda'); if (d.close) d.close(); else d.removeAttribute('open'); };
+$('#peu').innerHTML = DEMO
+  ? `<span class="mode">Mode local</span> El rival i el jutge són locals, amb les dades de les fitxes. <a href="?">Juga en viu</a>`
+  : `<span class="mode viu">En viu</span> Reptes i veredictes fets a Make, amb fonts. ${CARS.length} cotxes a la base de dades. <a href="?demo">Mode local</a>`;
+if (!DEMO) carregaViu();
+if (!DEMO && V.chat && V.ui && V.ui.status === 'playing') { S.pas = 'viu'; pintaViu(); segueix(300); } else pinta();
+</script>

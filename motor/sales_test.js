@@ -84,6 +84,34 @@ send('p-solo0001', '#fitxa ' + twingo[0], 20);
 assert.equal(ui.round_status, 'verdict'); assert.equal(ui.result.length, 2);
 assert.ok(ui.result.some((e) => e.alias === 'Rival IA' && e.car));
 
+// --- tries que arriben a part (web): una fila per jugador, i /temps les recull
+game = ''; for (const k in msgN) delete msgN[k];
+send('p-host0001', '/sala 5', 0, 'Gery'); send('p-anna0001', '/unir', 1, 'Anna'); send('p-biel0001', '/unir', 1, 'Biel');
+send('p-host0001', '/comencar', 2); ai(aiRaw, 10); // termini: 10 + 34 = 44
+const F = (pid, round, key, s) => [pid, round, key, t(s)].join('\x1f');
+let picks = [F('p-host0001', 1, golf[0], 20), F('p-anna0001', 1, twingo[0], 21), F('p-zzzz0001', 1, golf[0], 21), F('p-biel0001', 2, golf[0], 22)].join('\x1e') + '\x1e';
+assert.equal(S.parsePicks(picks).length, 4);
+let rr = S.run({ mode: 'step', game_json: game, room: 'web-sala0001', pid: 'p-host0001', text: '/temps', msg: 99, now: t(25), picks });
+ui = JSON.parse(rr.ui); game = rr.game_json;
+assert.equal(ui.round_status, 'open', 'encara en falta un (la del Biel és d’una altra ronda)');
+assert.deepEqual(ui.players.map((p) => p.picked), [true, true, false]);
+picks += F('p-biel0001', 1, 'inventat-1', 30) + '\x1e';
+rr = S.run({ mode: 'step', game_json: game, room: 'web-sala0001', pid: 'p-host0001', text: '/temps', msg: 100, now: t(31), picks });
+ui = JSON.parse(rr.ui); game = rr.game_json; assert.equal(ui.round_status, 'open', 'cotxe fora de la base de dades');
+picks = picks.replace('inventat-1', coupe[0]);
+rr = S.run({ mode: 'step', game_json: game, room: 'web-sala0001', pid: 'p-anna0001', text: '/temps', msg: 100, now: t(32), picks });
+ui = JSON.parse(rr.ui); game = rr.game_json;
+assert.equal(ui.round_status, 'verdict', 'tothom ha triat: es resol sense esperar');
+assert.equal(ui.result[0].alias, 'Gery'); assert.equal(ui.result.length, 3);
+// Una tria rebuda després del termini (més la gràcia) no compta
+rr = S.run({ mode: 'step', game_json: game, room: 'web-sala0001', pid: 'p-host0001', text: '/seguent', msg: 101, now: t(40) }); game = rr.game_json; // ronda 2, termini 40 + 34 = 74
+picks = [F('p-host0001', 2, golf[0], 80), F('p-anna0001', 2, golf[0], 78), F('p-biel0001', 2, golf[0], 20)].join('\x1e');
+rr = S.run({ mode: 'step', game_json: game, room: 'web-sala0001', pid: 'p-anna0001', text: '/temps', msg: 101, now: t(90), picks });
+ui = JSON.parse(rr.ui); game = rr.game_json;
+assert.equal(ui.round_status, 'verdict'); assert.equal(ui.result.find((e) => e.alias === 'Gery').car, null, 'tard');
+assert.ok(ui.result.find((e) => e.alias === 'Anna').car, 'dins la gràcia');
+assert.equal(ui.result.find((e) => e.alias === 'Biel').car, null, 'una fila antiga no compta');
+
 // --- puntuació
 const ch = S.buildChallenge({ title: 'x', criteria: [{ type: 'weight', max: 1000, hard: true }, { type: 'body', any: ['hatch'] }, { type: 'origin', any: ['FR'] }] });
 const noKg = S.CARS.find((x) => !x[9] && x[4].includes('hatch'));

@@ -364,7 +364,7 @@ function step(g, ev, ctx) {
     }
     case '/temps': {
       const r = cur(g);
-      if (g.status === 'playing' && r && r.status === 'open' && now >= at(r.deadline) - 1000) resolveRound(g, ctx);
+      if (g.status === 'playing' && r && r.status === 'open' && (now >= at(r.deadline) - 1000 || humans(g).every((p) => r.picks[p.pid]))) resolveRound(g, ctx);
       return g;
     }
     case '/seguent': {
@@ -382,6 +382,26 @@ function step(g, ev, ctx) {
     }
     default: return g;
   }
+}
+
+// Les tries de la web arriben a part (una fila per jugador, desada en rebre-la) perquè no facin cua al motor.
+// Només compten les de la ronda oberta, de jugadors de la sala, de cotxes de la base de dades i fetes a temps.
+function mergePicks(g, picks) {
+  const r = g && cur(g);
+  if (!r || g.status !== 'playing' || r.status !== 'open') return;
+  for (const pk of picks) {
+    const p = g.players.find((x) => x.pid === pk.pid && !x.left && x.pid !== RIVAL);
+    if (!p || Number(pk.round) !== r.n || r.picks[p.pid] || !BY_KEY[pk.key]) continue;
+    // Una fila d'una partida anterior de la mateixa sala és d'abans que s'obrís la ronda.
+    if (!(at(pk.at) <= at(r.deadline) + GRACE_MS && at(pk.at) >= at(r.opened_at) - 2000)) continue;
+    r.picks[p.pid] = { key: pk.key, at: pk.at };
+  }
+}
+function parsePicks(raw) {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw;
+  return String(raw).split('\x1e').map((line) => line.split('\x1f').map((x) => x.trim())).filter((f) => f.length >= 4 && f[0])
+    .map(([pid, round, key, at]) => ({ pid, round, key, at }));
 }
 
 // Arriba la resposta de la IA amb els reptes.
@@ -433,6 +453,7 @@ function run(input) {
     const pid = String(input.pid || ''), msg = Number(input.msg) || 0;
     // Cada pàgina numera les seves ordres: una ordre repetida o antiga no es torna a aplicar.
     if (g && g.seen && msg && (g.seen[pid] || 0) >= msg) return { route: 'none', prompt: '', game_json: '', ui: '', text: '', seq: 0 };
+    mergePicks(g, parsePicks(input.picks));
     g = step(g, { room: String(input.room || ''), pid, name: input.name, text: input.text }, ctx);
     if (g && msg) g.seen[pid] = msg;
   }

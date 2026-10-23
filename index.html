@@ -468,7 +468,7 @@ const CLAU = 'b28b13c9be8d3977a7e8b4e5'; // clau pública de la pàgina: només 
 const ESPERA = ['preparing', 'confirming', 'verifying'];
 const RIVAL_IA = 'Rival IA';
 // Estat del client. La partida de debò és a Make: aquí només hi ha l'últim estat rebut i els missatges.
-const V = { chat: '', msg: 0, after: 0, des: 0, ui: null, rebut: 0, log: [], enviat: 0, cotxe: '', ordre: '', intents: 0,
+const V = { limitat: '', chat: '', msg: 0, after: 0, des: 0, ui: null, rebut: 0, log: [], enviat: 0, cotxe: '', ordre: '', intents: 0,
   temporitzador: null, limit: 0, rellotge: null, rellotgeDe: '', fi: 0, avis: '', atascat: false };
 
 function desaViu() {
@@ -503,9 +503,14 @@ async function recull() {
     const n = Number(seq);
     if (n <= V.after) continue;
     V.after = n; V.log.push(text.trim()); canvi = true;
-    try { if (ui.trim()) { V.ui = JSON.parse(ui); V.rebut = Date.now(); } } catch (e) {}
+    try {
+      const est = ui.trim() ? JSON.parse(ui) : null;
+      // Límit diari de Make: l'estat de la partida no canvia, només s'avisa.
+      if (est && est.status === 'limit') { V.limitat = text.trim(); continue; }
+      if (est) { V.ui = est; V.rebut = Date.now(); }
+    } catch (e) {}
   }
-  if (canvi) { V.log = V.log.slice(-30); V.avis = ''; desaViu(); }
+  if (canvi) { V.log = V.log.slice(-30); V.avis = V.limitat || ''; desaViu(); }
   return canvi;
 }
 
@@ -519,6 +524,7 @@ async function pas() {
   try { if (await recull()) pintaViu(); }
   catch (e) { V.avis = 'Sense connexió amb el servidor. Torno a provar…'; pintaViu(); }
   const u = V.ui;
+  if (V.limitat) { V.limitat = ''; pintaViu(); return; }
   const enEspera = !u || (u.status === 'playing' && ESPERA.includes(u.round_status));
   if (V.after > V.des && !enEspera) {
     // Si el /temps ha arribat un pèl abans d'hora, la ronda encara és oberta: es torna a enviar.
@@ -591,7 +597,7 @@ const ST = { meets: ['ok', '✓', 'compleix'], partial: ['mig', '≈', 'a mitges
 const valor = (x) => typeof x !== 'number' ? String(x) : Number.isInteger(x) && x >= 1800 && x <= 2100 ? String(x) : x.toLocaleString('ca');
 function cela(row, i) {
   const s = ST[row && row.status] || ST.unverified;
-  const v = row && row.value !== null && row.value !== undefined && row.value !== '' && row.value !== 1 ? valor(row.value) : s[2];
+  const v = row && row.value !== null && row.value !== undefined && row.value !== '' && row.value !== 1 && row.value !== 0 ? valor(row.value) : s[2];
   return `<div class="fitxa gira ${s[0]}" style="--d:${(i * 0.18).toFixed(2)}s"><span><b>${s[1]}</b>${esc(v)}</span></div>`;
 }
 function motiu(u, jo, ell) {
@@ -625,6 +631,10 @@ function pintaViu() {
     const t = $('#torna'); if (t) t.onclick = () => { V.avis = ''; V.atascat = false; pintaViu(); segueix(0); };
     const s = $('#surt'); if (s) s.onclick = () => { if (V.ui && V.ui.status === 'playing') ordre('/cancela', 60000); surtViu(); };
   };
+  if (!u && V.avis) {
+    p.innerHTML = `<section class="tauler relleu">${avis()}<button class="boto" id="surt" type="button">Torna a l'inici</button></section>`;
+    return lliga();
+  }
   if (!u || u.status === 'lobby') { p.innerHTML = espera('Preparo la partida…', 'Pot trigar un minut.'); return lliga(); }
   const rs = u.round_status;
   if (u.status === 'playing' && (rs === 'preparing' || rs === 'confirming')) {

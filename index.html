@@ -174,6 +174,27 @@ dialog::backdrop { background: rgba(0,0,0,.7); }
 .dialeg p, .dialeg li { margin: 0; color: #cfcfd4; font-size: 15px; }
 .dialeg ol { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; }
 
+/* Sales */
+.suau { margin: 0; color: var(--metall); font-size: 15px; }
+.enllac { display: flex; gap: 8px; flex-wrap: wrap; }
+.enllac input { flex: 1 1 200px; min-width: 0; border: 0; padding: 12px; font: 500 14px var(--text); color: var(--blanc); }
+.enllac .boto { padding: 12px 16px; font-size: 14px; }
+.jugadors { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.jugadors li { padding: 7px 12px; border-radius: 999px; font-size: 14px; font-weight: 600; display: flex; gap: 8px; align-items: center; }
+.jugadors li.jo { box-shadow: inset 0 0 0 2px var(--vermell); }
+.jugadors .estat-tria { color: var(--metall); font-weight: 700; }
+.jugadors li.fet .estat-tria { color: #4cc983; }
+.subtitol { margin: 4px 0 0; font: 600 13px var(--text); letter-spacing: .12em; text-transform: uppercase; color: var(--metall); }
+.classificacio { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.classificacio li { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 10px 12px; }
+.classificacio li.jo { box-shadow: inset 0 0 0 2px var(--vermell), inset 4px 4px 9px var(--ombra-fosca); }
+.classificacio .pos { font: 700 20px var(--display); color: var(--metall); text-align: center; }
+.classificacio li:first-child .pos { color: var(--mig); }
+.classificacio .qui { min-width: 0; }
+.classificacio .qui strong { display: block; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.classificacio .qui small { display: block; color: var(--metall); font-size: 13px; }
+.classificacio .pts { font: 700 20px var(--display); font-variant-numeric: tabular-nums; }
+
 @media (max-width: 420px) {
   .duel { grid-template-columns: minmax(0, 1fr) 54px 54px; }
   .opcions { grid-template-columns: 1fr; }
@@ -205,10 +226,11 @@ dialog::backdrop { background: rgba(0,0,0,.7); }
   <div class="dialeg">
     <h2>Com es juga</h2>
     <ol>
-      <li>A cada ronda surt un repte amb criteris. Els marcats com a <b>imprescindible</b> s'han de complir sí o sí.</li>
-      <li>Tens <b>30 segons</b> per triar el cotxe que hi encaixa millor. Escriu i tria'l de la llista.</li>
-      <li>El Rival IA ja ha triat el seu. El jutge els compara criteri per criteri: verd compleix, groc a mitges, gris no, ratllat sense dada.</li>
-      <li>Guanya qui encaixa millor. Si no tries a temps, la ronda és per al rival.</li>
+      <li>Juga sol contra el Rival IA o crea una sala i envia l'enllaç: hi caben fins a 8 persones.</li>
+      <li>La IA prepara els reptes. Els criteris marcats com a <b>imprescindible</b> s'han de complir sí o sí.</li>
+      <li>Tothom té <b>30 segons</b> per triar el cotxe que hi encaixa millor. Escriu i tria'l de la llista.</li>
+      <li>El jutge compara les fitxes criteri per criteri: verd compleix, groc a mitges, gris no, ratllat sense dada.</li>
+      <li>A cada ronda guanyes un punt per cada rival que superes (mig punt si empateu). Qui no tria a temps no suma.</li>
     </ol>
     <button class="boto" type="button" id="tanca-ajuda">Entesos</button>
   </div>
@@ -287,7 +309,7 @@ function marcador() { return { jo: S.resultats.reduce((s, r) => s + (r === 'a' ?
 const pts = (n) => String(n).replace('.', ',');
 
 function pinta() {
-  if (!DEMO && S.pas !== 'inici') return pintaViu();
+  if (!DEMO) return pintaViu();
   pintaRondes();
   const p = $('#pantalla');
   if (S.pas === 'inici') {
@@ -461,282 +483,398 @@ function envia(perTemps) {
   pinta();
 }
 
-// ------------------------------------------------------------ partida en viu: els reptes i el jutge són a Make
-const ENTRADA = 'https://hook.eu1.make.com/duxywhmmhxx7eb6il9kxrdxb4oyhtinf';
-const RECULL = 'https://hook.eu1.make.com/hjw5kguhev3zj494uqito6q6kn9hkmcp';
+// ------------------------------------------------------------ partida en viu: sales a Make (la IA fa els reptes, el jutge compara les fitxes)
+const ENTRADA = 'https://hook.eu1.make.com/qz24m7eme2o3wwhl3khaeaxi3ofssevm';
+const ESTAT = 'https://hook.eu1.make.com/fsfywx539k2bj8rtpyybph7553c1311h';
 const CLAU = 'b28b13c9be8d3977a7e8b4e5'; // clau pública de la pàgina: només filtra trànsit a l'atzar, no és cap secret
-const ESPERA = ['preparing', 'confirming', 'verifying'];
+const MAX_JUGADORS = 8;
 const RIVAL_IA = 'Rival IA';
-// Estat del client. La partida de debò és a Make: aquí només hi ha l'últim estat rebut i els missatges.
-const V = { limitat: '', chat: '', msg: 0, after: 0, des: 0, ui: null, rebut: 0, log: [], enviat: 0, cotxe: '', ordre: '', intents: 0,
-  temporitzador: null, limit: 0, rellotge: null, rellotgeDe: '', fi: 0, avis: '', atascat: false };
+const ATURA_MS = 10 * 60 * 1000; // sense canvis durant 10 minuts, la pàgina deixa de preguntar (cada consulta gasta crèdits)
+const aleatori = (n) => Array.from(crypto.getRandomValues(new Uint8Array(n)), (b) => 'abcdefghijklmnopqrstuvwxyz0123456789'[b % 36]).join('');
+// La mateixa etiqueta pública que calcula el motor: serveix per reconèixer-se a la classificació.
+function etiqueta(pid) {
+  let h = 5381;
+  for (let i = 0; i < pid.length; i++) h = ((h * 33) ^ pid.charCodeAt(i)) >>> 0;
+  return h.toString(36).padStart(6, '0').slice(-6);
+}
+const codiSala = (sala) => sala.replace(/^s-/, '');
+const enllacSala = (sala) => location.origin + location.pathname + '?sala=' + codiSala(sala);
+
+// Estat del client. La partida de debò és a Make: aquí només hi ha l'últim estat rebut.
+const V = { pid: '', tag: '', sala: '', convit: '', ui: null, seq: 0, text: '', avis: '', limitat: '', tries: new Set(), desfase: 0,
+  temporitzador: null, rellotge: null, rellotgeDe: '', fi: 0, enviat: {}, cotxe: {}, temps: {}, seguent: {}, totsDe: 0, totsRonda: 0,
+  rapid: 0, ultimCanvi: 0, aturat: false, inici: 0, atzar: Math.random() * 3000 };
 
 function desaViu() {
-  try { localStorage.setItem('qem-viu', JSON.stringify({ chat: V.chat, msg: V.msg, after: V.after, ui: V.ui, log: V.log.slice(-20), enviat: V.enviat, cotxe: V.cotxe })); } catch (e) {}
+  try { localStorage.setItem('qem-sala', JSON.stringify({ sala: V.sala, enviat: V.enviat, cotxe: V.cotxe })); } catch (e) {}
 }
 function carregaViu() {
   try {
-    const d = JSON.parse(localStorage.getItem('qem-viu') || 'null');
-    if (d && /^web-[a-z0-9]{8,32}$/.test(d.chat)) Object.assign(V, { chat: d.chat, msg: d.msg || 0, after: d.after || 0, ui: d.ui || null, log: d.log || [], enviat: d.enviat || 0, cotxe: d.cotxe || '' });
+    V.pid = localStorage.getItem('qem-jugador') || '';
+    if (!/^p-[a-z0-9]{16}$/.test(V.pid)) { V.pid = 'p-' + aleatori(16); localStorage.setItem('qem-jugador', V.pid); }
+  } catch (e) { V.pid = V.pid || 'p-' + aleatori(16); }
+  V.tag = etiqueta(V.pid);
+  const c = new URLSearchParams(location.search).get('sala');
+  if (c && /^[a-z0-9]{8,32}$/.test(c)) V.convit = 's-' + c;
+  try {
+    const d = JSON.parse(localStorage.getItem('qem-sala') || 'null');
+    if (d && /^s-[a-z0-9]{8,32}$/.test(d.sala) && (!V.convit || V.convit === d.sala)) Object.assign(V, { sala: d.sala, enviat: d.enviat || {}, cotxe: d.cotxe || {} });
   } catch (e) {}
 }
-const nouXat = () => 'web-' + Array.from(crypto.getRandomValues(new Uint8Array(12)), (b) => 'abcdefghijklmnopqrstuvwxyz0123456789'[b % 36]).join('');
 
-// Envia una ordre al motor. La resposta arriba més tard pels missatges, així que no cal llegir-la.
-async function ordre(text, primeraEspera) {
-  V.msg++; V.ordre = text; V.des = V.after; V.avis = ''; V.atascat = false; desaViu();
-  const q = new URLSearchParams({ k: CLAU, chat_id: V.chat, msg: String(V.msg), name: S.nom || 'Pilot', text });
+// Envia una ordre. La resposta no porta l'estat: arriba amb la consulta següent.
+async function ordre(text, extra) {
+  const q = new URLSearchParams(Object.assign({ k: CLAU, room: V.sala, pid: V.pid, name: S.nom || 'Pilot', text, msg: String(Date.now()) }, extra || {}));
+  V.rapid = Date.now() + 25000; V.aturat = false;
   try { await fetch(ENTRADA + '?' + q, { mode: 'no-cors', cache: 'no-store' }); }
-  catch (e) { V.avis = 'No he pogut enviar l’ordre. Comprova la connexió.'; V.atascat = true; pintaViu(); return; }
-  segueix(primeraEspera);
+  catch (e) { V.avis = 'No he pogut enviar l’ordre. Comprova la connexió.'; pintaViu(); return false; }
+  programa(2500);
+  return true;
 }
 
-// Llegeix els missatges nous. Cada registre és seq␟text␟estat, separats per ␞.
-async function recull() {
-  const q = new URLSearchParams({ k: CLAU, chat_id: V.chat, after: String(V.after) });
-  const r = await fetch(RECULL + '?' + q, { cache: 'no-store' });
+// Llegeix l'estat de la sala: hora␟seq␟estat␟text␟avís␟etiquetes de qui ja ha triat.
+async function estat() {
+  const u = V.ui, oberta = u && u.status === 'playing' && u.round_status === 'open';
+  const q = new URLSearchParams({ k: CLAU, room: V.sala });
+  if (oberta) q.set('round', String(u.round));
+  const t0 = Date.now();
+  const r = await fetch(ESTAT + '?' + q, { cache: 'no-store' });
   if (!r.ok) throw new Error('HTTP ' + r.status);
-  const recs = (await r.text()).split('\u001e').map((x) => x.split('\u001f')).filter((x) => x.length >= 3 && /^\s*\d+\s*$/.test(x[0]));
-  recs.sort((a, b) => Number(a[0]) - Number(b[0]));
+  const f = (await r.text()).split('\u001f');
+  const t1 = Date.now();
+  if (/^\d{12,}$/.test((f[0] || '').trim())) V.desfase = Number(f[0]) - (t0 + t1) / 2;
   let canvi = false;
-  for (const [seq, text, ui] of recs) {
-    const n = Number(seq);
-    if (n <= V.after) continue;
-    V.after = n; V.log.push(text.trim()); canvi = true;
-    try {
-      const est = ui.trim() ? JSON.parse(ui) : null;
-      // Límit diari de Make: l'estat de la partida no canvia, només s'avisa.
-      if (est && est.status === 'limit') { V.limitat = text.trim(); continue; }
-      if (est) { V.ui = est; V.rebut = Date.now(); }
-    } catch (e) {}
+  const seq = Number(f[1]) || 0;
+  if (seq > V.seq && f[2] && f[2].trim()) {
+    try { V.ui = JSON.parse(f[2]); V.seq = seq; V.text = (f[3] || '').trim(); V.ultimCanvi = Date.now(); canvi = true; } catch (e) {}
   }
-  if (canvi) { V.log = V.log.slice(-30); V.avis = V.limitat || ''; desaViu(); }
+  const avis = (f[4] || '').trim();
+  if (avis && avis !== V.limitat) { V.limitat = avis; V.avis = avis; canvi = true; }
+  const tries = new Set((f[5] || '').split(',').map((x) => x.trim()).filter(Boolean));
+  if (oberta && [...tries].some((t) => !V.tries.has(t))) canvi = true;
+  V.tries = oberta && V.ui && V.ui.round === u.round ? tries : new Set();
   return canvi;
 }
 
-// Només es pregunta al servidor mentre s'espera una resposta: mai durant els 30 segons de triar.
-function segueix(primera) {
+const ara = () => Date.now() + V.desfase;
+const humans = (u) => (u.players || []).filter((p) => p.tag !== 'ia');
+const soc = (u) => (u.players || []).find((p) => p.tag === V.tag);
+const triat = (u, p) => p.picked || V.tries.has(p.tag) || (p.tag === V.tag && V.enviat[u.round]);
+const totsHanTriat = (u) => humans(u).length > 0 && humans(u).every((p) => triat(u, p));
+
+function programa(ms) {
   clearTimeout(V.temporitzador);
-  V.limit = Date.now() + 240000;
-  V.temporitzador = setTimeout(pas, primera);
+  if (!V.sala || V.aturat) return;
+  V.temporitzador = setTimeout(pas, Math.max(300, ms));
 }
+
+// Cada consulta gasta crèdits a Make: es pregunta més sovint només quan s'espera un canvi.
 async function pas() {
-  try { if (await recull()) pintaViu(); }
-  catch (e) { V.avis = 'Sense connexió amb el servidor. Torno a provar…'; pintaViu(); }
-  const u = V.ui;
-  if (V.limitat) { V.limitat = ''; pintaViu(); return; }
-  const enEspera = !u || (u.status === 'playing' && ESPERA.includes(u.round_status));
-  if (V.after > V.des && !enEspera) {
-    // Si el /temps ha arribat un pèl abans d'hora, la ronda encara és oberta: es torna a enviar.
-    if (V.ordre === '/temps' && u.status === 'playing' && u.round_status === 'open' && !u.my_car && V.intents < 3) {
-      V.intents++; V.temporitzador = setTimeout(() => ordre('/temps', 2500), 2500);
-    }
-    return;
+  if (document.hidden) return; // en tornar a la pestanya es reprèn
+  let canvi = false;
+  try { canvi = await estat(); if (V.avis && !V.limitat) { V.avis = ''; canvi = true; } }
+  catch (e) { V.avis = 'Sense connexió amb el servidor. Torno a provar…'; canvi = true; }
+  if (canvi) pintaViu();
+  const u = V.ui, t = ara(), rapid = Date.now() < V.rapid, amfitrio = u && u.host === V.tag;
+  if (!u) {
+    if (Date.now() - V.inici > 90000) { V.avis = 'La sala no respon. Comprova l’enllaç o torna-ho a provar.'; V.aturat = true; pintaViu(); return; }
+    return programa(rapid ? 2500 : 4000);
   }
-  if (Date.now() > V.limit) { V.avis = 'Encara no hi ha resposta del servidor.'; V.atascat = true; pintaViu(); return; }
-  V.temporitzador = setTimeout(pas, 4000);
+  if (u.status === 'finished' || u.status === 'cancelled') return;
+  if (Date.now() - V.ultimCanvi > ATURA_MS && !rapid) { V.aturat = true; pintaViu(); return; }
+  let espera = 5000;
+  if (u.status === 'playing' && u.round_status === 'open') {
+    const fi = Date.parse(u.deadline);
+    // Quan tothom ha triat, o s'acaba el temps, l'amfitrió demana el veredicte; els altres ho fan si ell no hi és.
+    const tots = totsHanTriat(u);
+    if (!tots || V.totsRonda !== u.round) { V.totsDe = tots ? Date.now() : 0; V.totsRonda = tots ? u.round : 0; }
+    const llest = tots || t >= fi - 500;
+    const marge = amfitrio || u.solo ? 0 : 9000 + V.atzar;
+    if (llest && (tots ? Date.now() - V.totsDe : t - fi) >= marge) demanaTemps(u);
+    espera = rapid || llest ? 2500 : Math.min(6000, Math.max(1500, fi - t + 300));
+  } else if (u.status === 'playing' && u.round_status === 'verdict') {
+    const prox = Date.parse(u.next_at);
+    if (t >= prox + (amfitrio ? 0 : 9000 + V.atzar)) demanaSeguent(u);
+    espera = rapid ? 2500 : Math.min(6000, Math.max(2000, prox - t + 200));
+  } else if (u.status === 'preparing') espera = rapid ? 3000 : 4000;
+  else if (u.status === 'lobby') espera = rapid ? 2500 : 5000;
+  programa(espera);
+}
+function demanaTemps(u) {
+  const k = u.round, d = V.temps[k] || { n: 0, t: 0 };
+  if (d.n >= 3 || Date.now() - d.t < 9000) return;
+  V.temps[k] = { n: d.n + 1, t: Date.now() };
+  ordre('/temps');
+}
+function demanaSeguent(u) {
+  const k = u.round, d = V.seguent[k] || { n: 0, t: 0 };
+  if (d.n >= 3 || Date.now() - d.t < 9000) return;
+  V.seguent[k] = { n: d.n + 1, t: Date.now() };
+  ordre('/seguent');
 }
 
-function comencaViu() {
+function entraSala(sala, text) {
   clearTimeout(V.temporitzador); clearInterval(V.rellotge);
-  Object.assign(V, { chat: nouXat(), msg: 0, after: 0, des: 0, ui: null, log: [], enviat: 0, cotxe: '', rellotgeDe: '' });
-  S.pas = 'viu'; pintaViu();
-  ordre('/nova ' + S.rondes, 12000);
+  Object.assign(V, { sala, ui: null, seq: 0, text: '', avis: '', limitat: '', tries: new Set(), enviat: {}, cotxe: {}, temps: {}, seguent: {}, totsDe: 0, totsRonda: 0, rellotgeDe: '', aturat: false, inici: Date.now(), ultimCanvi: Date.now() });
+  desaViu(); pintaViu();
+  if (text) ordre(text); else programa(300);
 }
-function surtViu() {
+function surtViu(avisa) {
   clearTimeout(V.temporitzador); clearInterval(V.rellotge);
-  V.chat = ''; V.ui = null; desaViu();
-  try { localStorage.removeItem('qem-viu'); } catch (e) {}
-  S.pas = 'inici'; S.resultats = []; pinta();
+  if (avisa && V.sala && V.ui && !['finished', 'cancelled'].includes(V.ui.status)) ordre('/surt');
+  clearTimeout(V.temporitzador);
+  V.sala = ''; V.ui = null; V.convit = ''; V.avis = '';
+  try { localStorage.removeItem('qem-sala'); } catch (e) {}
+  if (location.search) history.replaceState(null, '', location.pathname);
+  pintaViu();
 }
 
-// Cronòmetre a partir de l'hora límit del servidor; si el rellotge del dispositiu no quadra, es compta des que ha arribat l'estat.
+// Cronòmetre a partir de l'hora límit del servidor, corregida amb la diferència de rellotges.
 function arrencaRellotge() {
   const u = V.ui;
-  if (V.rellotgeDe === u.deadline) return;
-  V.rellotgeDe = u.deadline;
-  const total = (u.turn_seconds || TEMPS) * 1000;
-  let rest = Date.parse(u.deadline) - Date.now();
-  if (!(rest <= total + 2000 && rest > -600000)) rest = Date.parse(u.deadline) - Date.parse(u.server_now) - (Date.now() - V.rebut);
-  V.fi = Date.now() + Math.min(total, rest);
+  if (V.rellotgeDe !== u.deadline) { V.rellotgeDe = u.deadline; V.fi = Date.parse(u.deadline) - V.desfase; }
   clearInterval(V.rellotge);
   const toc = () => {
-    S.temps = Math.max(0, Math.ceil((V.fi - Date.now()) / 1000));
+    S.temps = Math.max(0, Math.min(TEMPS, Math.ceil((V.fi - Date.now()) / 1000)));
     actualitzaRellotge();
-    if (S.temps <= 0) {
-      clearInterval(V.rellotge);
-      if (V.enviat !== u.round) { V.intents = 0; V.enviat = u.round; V.cotxe = ''; pintaViu(); ordre('/temps', 2500); }
-    }
+    if (S.temps <= 0) { clearInterval(V.rellotge); pintaViu(); programa(1500); }
   };
   V.rellotge = setInterval(toc, 250); toc();
 }
 
-function enviaCotxe() {
+async function enviaCotxe() {
   const u = V.ui, c = S.tria;
-  if (!c || !u || V.enviat === u.round) return;
+  if (!c || !u || V.enviat[u.round]) return;
   clearInterval(V.rellotge);
-  V.enviat = u.round; V.cotxe = c.nom;
+  V.enviat[u.round] = c.key; V.cotxe[u.round] = c.nom; desaViu();
   pintaViu();
-  ordre(`#fitxa ${c.key}|${c.nom}|${anys(c)}`, 8000);
+  const ok = await ordre('#fitxa', { car: c.key, round: String(u.round), tag: V.tag });
+  // Sol contra la IA no cal esperar ningú: el veredicte es demana de seguida.
+  if (ok && u.solo) demanaTemps(u);
 }
 
+// ------------------------------------------------------------ pantalles en viu
 function pintaRondesViu() {
   const u = V.ui, el = $('#rondes');
-  const n = (u && u.rounds) || S.rondes, res = (u && u.results) || [];
+  if (!u || !u.rounds || u.status === 'lobby') { el.innerHTML = ''; return; }
+  const n = u.rounds, hist = u.history || [];
   el.style.setProperty('--n', n);
   el.classList.toggle('moltes', n > 5);
-  const cls = { win: 'guanya', lose: 'perd', tie: 'empat', annulled: 'anul' };
-  const nom = { win: 'guanyada', lose: 'perduda', tie: 'empatada', annulled: 'anul·lada' };
   el.innerHTML = Array.from({ length: n }, (_, i) => {
-    const r = res[i], actual = !r && u && u.status === 'playing' && i === u.round - 1;
-    return `<div class="casella relleu ${cls[r] || (actual ? 'actual' : '')}" aria-label="Ronda ${i + 1}: ${nom[r] || 'pendent'}">${i + 1}</div>`;
+    const h = hist[i];
+    let cls = '', nom = 'pendent';
+    if (h) {
+      const max = Math.max(...h.map((x) => x[1])), jo = (h.find((x) => x[0] === V.tag) || [0, -1])[1];
+      const n1 = h.filter((x) => x[1] === max).length;
+      [cls, nom] = jo === max && n1 === 1 ? ['guanya', 'guanyada'] : jo === max ? ['empat', 'empatada'] : ['perd', 'perduda'];
+    } else if (u.status === 'playing' && i === u.round - 1) cls = 'actual';
+    return `<div class="casella relleu ${cls}" aria-label="Ronda ${i + 1}: ${nom}">${i + 1}</div>`;
   }).join('');
 }
 
-const ST = { meets: ['ok', '✓', 'compleix'], partial: ['mig', '≈', 'a mitges'], fails: ['no', '✗', 'no compleix'], unverified: ['nd', '?', 'sense dada'] };
-const valor = (x) => typeof x !== 'number' ? String(x) : Number.isInteger(x) && x >= 1800 && x <= 2100 ? String(x) : x.toLocaleString('ca');
-function cela(row, i) {
-  const s = ST[row && row.status] || ST.unverified;
-  const v = row && row.value !== null && row.value !== undefined && row.value !== '' && row.value !== 1 && row.value !== 0 ? valor(row.value) : s[2];
-  return `<div class="fitxa gira ${s[0]}" style="--d:${(i * 0.18).toFixed(2)}s"><span><b>${s[1]}</b>${esc(v)}</span></div>`;
+const sempre = (u) => u && u.players ? u.players : [];
+function xipsJugadors(u, ambTria) {
+  return `<ul class="jugadors" aria-label="Jugadors">${sempre(u).map((p) => {
+    const fet = ambTria && triat(u, p);
+    return `<li class="${p.tag === V.tag ? 'jo' : ''} ${fet ? 'fet' : ''} ${ambTria ? 'enfonsat' : 'relleu'}">${esc(p.alias)}${p.tag === u.host && !u.solo ? ' <span class="xip">Amfitrió</span>' : ''}${ambTria ? `<span class="estat-tria" aria-label="${fet ? 'ja ha triat' : 'encara tria'}">${fet ? '✓' : '…'}</span>` : ''}</li>`;
+  }).join('')}</ul>`;
 }
-function motiu(u, jo, ell) {
-  const v = u.verdict, c = (id) => (u.criteria.find((k) => k.id === id) || {}).label;
-  switch (v.decisive) {
-    case 'temps': return v.outcome === u.me ? 'El rival no ha triat a temps.' : 'No has triat cap cotxe a temps.';
-    case 'requisits_durs': return 'Només un dels dos compleix l’imprescindible.';
-    case 'puntuacio': return `Encaix: tu ${pts(jo.score)} %, ${RIVAL_IA} ${pts(ell.score)} %.`;
-    case 'desempat_durs': return 'Desempat: compleix més criteris imprescindibles.';
-    case 'desempat_criteri': return `Desempat pel criteri «${c(v.tiebreak) || 'principal'}».`;
-    case 'empat_real': return 'Encaixen gairebé igual.';
-    case 'mateix_cotxe': return 'Heu triat el mateix cotxe: la ronda es repeteix.';
-    case 'pendent': return 'Falten dades amb font per decidir-ho.';
-    default: return '';
-  }
+function avisViu() {
+  return V.avis ? `<p class="avis enfonsat" role="status">${esc(V.avis)}</p>` : '';
 }
-function registre() {
-  if (!V.log.length) return '';
-  return `<details class="registre"><summary>Missatges del jutge</summary><ol>${V.log.slice(-10).reverse().map((t) => `<li class="enfonsat">${esc(t)}</li>`).join('')}</ol></details>`;
+function esperaViu(text, nota, extra) {
+  return `<section class="preparant relleu"><div class="semafor" aria-hidden="true"><i></i><i></i><i></i></div><p>${text}</p>${nota ? `<p>${nota}</p>` : ''}${avisViu()}${extra || ''}</section>`;
 }
-function avis() {
-  return V.avis ? `<p class="avis enfonsat" role="status">${esc(V.avis)}</p>${V.atascat ? '<button class="boto" id="torna" type="button">Torna a mirar</button>' : ''}` : '';
+const fmtPunts = (n) => pts(Math.round(n * 10) / 10);
+
+function pintaIniciViu() {
+  const p = $('#pantalla');
+  const convit = V.convit;
+  p.innerHTML = `<section class="inici relleu">
+    <h2 class="titol">${convit ? 'T’han convidat a una sala' : 'Tria el cotxe que encaixa millor'}</h2>
+    <p>${convit ? `Sala <strong>${esc(codiSala(convit))}</strong>. Escriu el teu nom i entra: l’amfitrió començarà la partida quan hi sigueu tots.` : `La IA prepara els reptes i tens 30 segons per triar un cotxe de la base de dades. El jutge compara les fitxes criteri per criteri. Juga sol contra el ${RIVAL_IA} o crea una sala per a fins a ${MAX_JUGADORS} persones.`}</p>
+    <div class="nom-jugador"><label for="nom">El teu nom<input id="nom" class="enfonsat" maxlength="24" autocomplete="nickname" value="${esc(S.nom)}" placeholder="Pilot"></label></div>
+    ${convit ? `<button class="boto principal" id="unir" type="button">Entra a la sala</button>
+      <button class="boto discret" id="no-convit" type="button">Prefereixo jugar pel meu compte</button>`
+    : `<div class="opcions">
+        <label for="n-rondes">Rondes<select id="n-rondes" class="enfonsat"><option value="5">5</option><option value="10">10</option><option value="15">15</option></select></label>
+      </div>
+      <div class="accions">
+        <button class="boto principal" id="sol" type="button">Juga contra la IA</button>
+        <button class="boto" id="crea" type="button">Crea una sala</button>
+      </div>`}
+    ${avisViu()}
+  </section>`;
+  const nom = () => { S.nom = $('#nom').value.trim().slice(0, 24) || 'Pilot'; try { localStorage.setItem('qem-nom', S.nom); } catch (e) {} };
+  const b = (id, fn) => { const el = $('#' + id); if (el) el.onclick = fn; };
+  if ($('#n-rondes')) $('#n-rondes').value = String(S.rondes);
+  const rondes = () => { S.rondes = Number($('#n-rondes').value) || 5; return S.rondes; };
+  b('sol', () => { nom(); entraSala('s-' + aleatori(12), '/nova ' + rondes()); });
+  b('crea', () => { nom(); const s = 's-' + aleatori(10); history.replaceState(null, '', '?sala=' + codiSala(s)); entraSala(s, '/sala ' + rondes()); });
+  b('unir', () => { nom(); const s = convit; entraSala(s, '/unir'); });
+  b('no-convit', () => { V.convit = ''; history.replaceState(null, '', location.pathname); pintaViu(); });
 }
 
 function pintaViu() {
   const u = V.ui, p = $('#pantalla');
   pintaRondesViu();
-  if (!V.chat || (u && u.status === 'cancelled')) return surtViu();
-  const espera = (text, nota) => `<section class="preparant relleu"><div class="semafor" aria-hidden="true"><i></i><i></i><i></i></div><p>${text}</p>${nota ? `<p>${nota}</p>` : ''}${avis()}</section>${registre()}`;
+  if (!V.sala) return pintaIniciViu();
+  const b = (id, fn) => { const el = $('#' + id); if (el) el.onclick = fn; };
   const lliga = () => {
-    const t = $('#torna'); if (t) t.onclick = () => { V.avis = ''; V.atascat = false; pintaViu(); segueix(0); };
-    const s = $('#surt'); if (s) s.onclick = () => { if (V.ui && V.ui.status === 'playing') ordre('/cancela', 60000); surtViu(); };
+    b('surt', () => surtViu(true));
+    b('inici', () => surtViu(false));
+    b('torna', () => { V.aturat = false; V.avis = ''; V.ultimCanvi = Date.now(); V.inici = Date.now(); pintaViu(); programa(0); });
   };
-  if (!u && V.avis) {
-    p.innerHTML = `<section class="tauler relleu">${avis()}<button class="boto" id="surt" type="button">Torna a l'inici</button></section>`;
+  const surt = `<button class="boto discret" id="surt" type="button">Surt de la sala</button>`;
+  const aturat = V.aturat ? `<p class="avis enfonsat">He deixat de mirar si hi ha canvis per no gastar.</p><button class="boto" id="torna" type="button">Torna a mirar</button>` : '';
+  if (!u) {
+    p.innerHTML = esperaViu('Connecto amb la sala…', '', `${aturat}<button class="boto discret" id="inici" type="button">Torna a l'inici</button>`);
     return lliga();
   }
-  if (!u || u.status === 'lobby') { p.innerHTML = espera('Preparo la partida…', 'Pot trigar un minut.'); return lliga(); }
-  const rs = u.round_status;
-  if (u.status === 'playing' && (rs === 'preparing' || rs === 'confirming')) {
-    p.innerHTML = espera(`Preparo i comprovo el repte de la ronda ${u.round}…`, 'Busco cotxes que hi encaixin amb fonts. Pot trigar un minut.');
+  const me = soc(u);
+  if (u.status === 'cancelled') {
+    p.innerHTML = `<section class="tauler relleu"><h2 class="titol">Partida cancel·lada</h2><p>${esc(V.text || 'La sala s’ha tancat.')}</p><button class="boto principal" id="inici" type="button">Torna a l'inici</button></section>`;
     return lliga();
   }
-  const jo = (u.board || []).find((b) => b.alias !== RIVAL_IA) || { alias: S.nom, points: 0 };
-  const ia = (u.board || []).find((b) => b.alias === RIVAL_IA) || { points: 0 };
-  const cap = `<p class="eyebrow"><span>Ronda ${u.round} de ${u.rounds}</span><span>${esc(jo.alias)} ${pts(jo.points)} · ${pts(ia.points)} ${RIVAL_IA}</span></p>
-    ${u.title ? `<h2 class="titol">${esc(u.title)}</h2>` : ''}`;
-  const surt = `<button class="boto discret" id="surt" type="button">Abandona la partida</button>`;
-  if (u.status === 'playing' && rs === 'preparing_failed') {
-    p.innerHTML = `<section class="tauler relleu">${cap}
-      <p>No he pogut preparar un repte amb fonts fiables aquesta vegada. No compta per a ningú.</p>${avis()}
-      <div class="accions"><button class="boto principal" id="reintenta" type="button">Torna-ho a provar</button></div>${surt}</section>${registre()}`;
-    $('#reintenta').onclick = () => { pintaViuEspera('Preparo un altre repte…'); ordre('/seguent', 12000); };
+  if (!me && u.status === 'lobby' && Date.now() < V.rapid) { p.innerHTML = esperaViu('Entro a la sala…'); return lliga(); }
+  if (!me) {
+    const tard = u.status !== 'lobby';
+    p.innerHTML = `<section class="tauler relleu"><h2 class="titol">${tard ? 'La partida ja ha començat' : 'Encara no ets a la sala'}</h2>
+      <p>${tard ? 'Aquesta sala ja juga. Demana un enllaç nou per a la propera partida.' : humans(u).length >= MAX_JUGADORS ? 'La sala és plena.' : 'Entra-hi per jugar.'}</p>${avisViu()}
+      ${!tard && humans(u).length < MAX_JUGADORS ? '<button class="boto principal" id="unir" type="button">Entra a la sala</button>' : ''}
+      <button class="boto discret" id="inici" type="button">Torna a l'inici</button></section>`;
+    b('unir', () => ordre('/unir'));
     return lliga();
   }
-  const criteris = (u.criteria || []).map((k) => `<li class="enfonsat"><span>${esc(k.label)}${k.definition ? `<br><small>${esc(k.definition)}</small>` : ''}</span><span class="xip ${k.hard ? 'dur' : ''}">${k.hard ? 'Imprescindible' : 'Criteri'}</span></li>`).join('');
-  if (u.status === 'playing' && rs === 'open' && !u.my_car && V.enviat !== u.round) {
-    S.tria = null;
+  const amfitrio = u.host === V.tag;
+  if (u.status === 'lobby') {
+    const n = humans(u).length, link = enllacSala(V.sala);
     p.innerHTML = `<section class="tauler relleu">
-      ${cap}
-      <ul class="criteris">${criteris}</ul>
-      <div class="cronometre">
-        <div class="rellotge relleu" id="rellotge" role="timer" aria-label="Temps restant">
-          <svg viewBox="0 0 100 100" aria-hidden="true"><circle class="fons" cx="50" cy="50" r="44"></circle><circle class="arc" id="arc" cx="50" cy="50" r="44" stroke-dasharray="276.5" stroke-dashoffset="0"></circle></svg>
-          <span class="xifra" id="xifra">${TEMPS}</span>
-        </div>
-        <p>El <strong>${RIVAL_IA}</strong> ja ha triat. Escriu marca o model i tria el cotxe de la llista abans que s'acabi el temps.</p>
-      </div>
-      <form class="resposta" id="form" autocomplete="off">
-        <label for="cerca">El teu cotxe</label>
-        <div class="camp">
-          <input id="cerca" class="enfonsat" role="combobox" aria-expanded="false" aria-controls="llista" aria-autocomplete="list" placeholder="Ex.: Golf Mk7, MX-5, Clio…">
-          <button class="boto principal" id="envia" type="submit" disabled>Envia</button>
-        </div>
-        <ul class="llista relleu" id="llista" role="listbox" hidden></ul>
-        <p class="ajuda-camp" id="ajuda-camp">${CARS.length} cotxes a la base de dades.</p>
-      </form>${avis()}
-    </section>`;
-    preparaCerca(enviaCotxe);
-    arrencaRellotge();
-    $('#cerca').focus({ preventScroll: true });
+      <p class="eyebrow"><span>Sala ${esc(codiSala(V.sala))}</span><span>${n} de ${MAX_JUGADORS} · ${u.rounds} rondes</span></p>
+      <h2 class="titol">Convida la colla</h2>
+      <p class="suau">Envia aquest enllaç a qui vulgui jugar. Tothom té el mateix repte i 30 segons per triar.</p>
+      <div class="enllac"><input class="enfonsat" id="enllac" readonly value="${esc(link)}" aria-label="Enllaç de la sala">
+        <button class="boto" id="copia" type="button">Copia</button>${navigator.share ? '<button class="boto" id="comparteix" type="button">Comparteix</button>' : ''}</div>
+      ${xipsJugadors(u, false)}
+      ${amfitrio ? `<button class="boto principal" id="comenca" type="button" ${n < 2 ? 'disabled' : ''}>Comença la partida</button>
+        <p class="suau">${n < 2 ? 'Cal que hi hagi almenys dues persones.' : 'Quan hi sigueu tots, comença.'}</p>`
+      : `<p class="suau">Esperant que l’amfitrió comenci la partida…</p>`}
+      ${avisViu()}${aturat}${surt}</section>`;
+    b('copia', async () => { try { await navigator.clipboard.writeText(link); $('#copia').textContent = 'Copiat!'; } catch (e) { $('#enllac').select(); } });
+    b('comparteix', () => navigator.share({ title: 'Quin encaixa millor?', text: 'Juga amb mi a «Quin encaixa millor?»', url: link }).catch(() => {}));
+    b('comenca', () => { $('#comenca').disabled = true; ordre('/comencar'); });
     return lliga();
   }
-  if (u.status === 'playing' && (rs === 'open' || rs === 'verifying')) {
-    const quin = u.my_car || V.cotxe;
-    p.innerHTML = `<section class="tauler relleu">${cap}<ul class="criteris">${criteris}</ul></section>` +
-      espera(quin ? `Has triat <strong>${esc(quin)}</strong>. El jutge el compara amb el del ${RIVAL_IA}…` : 'S’ha acabat el temps…', rs === 'verifying' ? 'Comprova cada criteri amb fonts. Pot trigar un minut.' : '');
+  if (u.status === 'preparing') {
+    const encallat = ara() - Date.parse(u.prep_at) > 120000;
+    p.innerHTML = esperaViu('La IA prepara els reptes…', 'Només cal un moment. Després, tothom té el mateix repte alhora.',
+      `${encallat ? '<button class="boto" id="reintenta" type="button">Torna-ho a provar</button>' : ''}${aturat}${surt}`);
+    b('reintenta', () => ordre('/reintenta'));
     return lliga();
   }
-  // Veredicte (o ronda pendent de verificar, anul·lada o acabada)
-  const v = u.verdict || { a: {}, b: {} };
-  const me = u.me || 'a', ell = me === 'a' ? 'b' : 'a';
-  const vj = v[me] || {}, ve = v[ell] || {};
-  const files = (vj.rows || []).length || (ve.rows || []).length;
-  const fila = (k, i) => `<span class="etiqueta" role="cell">${esc(k.label)}${k.hard ? ' <span class="xip dur">Imp.</span>' : ''}</span>${cela((vj.rows || []).find((x) => x.id === k.id), i * 2)}${cela((ve.rows || []).find((x) => x.id === k.id), i * 2 + 1)}`;
-  const pendent = rs === 'pending_verification' || rs === 'verify_failed';
-  const ban = rs === 'annulled' ? ['empat', 'Ronda anul·lada'] : pendent ? ['empat', 'Pendent de verificar'] : v.outcome === 'tie' ? ['empat', 'Empat'] : v.outcome === me ? ['guanya', 'Guanyes la ronda'] : ['perd', `Guanya el ${RIVAL_IA}`];
-  const per = rs === 'verify_failed' ? 'No he pogut comprovar les dades amb fonts.' : motiu(u, vj, ve);
+  const total = (tag) => ((u.players || []).find((x) => x.tag === tag) || {}).points || 0;
+  const rival = u.solo ? (u.players || []).find((x) => x.tag === 'ia') : null;
+  const cap = `<p class="eyebrow"><span>Ronda ${u.round} de ${u.rounds}</span><span>${u.solo ? `${esc(me.alias)} ${fmtPunts(me.points)} · ${fmtPunts(rival ? rival.points : 0)} ${RIVAL_IA}` : `Sala ${esc(codiSala(V.sala))} · ${humans(u).length} jugadors`}</span></p>
+    <h2 class="titol">${esc(u.challenge ? u.challenge.title : '')}</h2>`;
+  const criteris = ((u.challenge && u.challenge.criteria) || []).map((k) => `<li class="enfonsat"><span>${esc(k.label)}</span><span class="xip ${k.hard ? 'dur' : ''}">${k.hard ? 'Imprescindible' : 'Criteri'}</span></li>`).join('');
+  if (u.round_status === 'open') {
+    const temps = Date.parse(u.deadline) - ara();
+    if (!V.enviat[u.round] && temps > 0) {
+      S.tria = null;
+      p.innerHTML = `<section class="tauler relleu">
+        ${cap}
+        <ul class="criteris">${criteris}</ul>
+        <div class="cronometre">
+          <div class="rellotge relleu" id="rellotge" role="timer" aria-label="Temps restant">
+            <svg viewBox="0 0 100 100" aria-hidden="true"><circle class="fons" cx="50" cy="50" r="44"></circle><circle class="arc" id="arc" cx="50" cy="50" r="44" stroke-dasharray="276.5" stroke-dashoffset="0"></circle></svg>
+            <span class="xifra" id="xifra">${TEMPS}</span>
+          </div>
+          <p>${u.solo ? `El <strong>${RIVAL_IA}</strong> ja ha triat.` : 'Tothom té el mateix repte.'} Escriu marca o model i tria el cotxe de la llista abans que s'acabi el temps.</p>
+        </div>
+        <form class="resposta" id="form" autocomplete="off">
+          <label for="cerca">El teu cotxe</label>
+          <div class="camp">
+            <input id="cerca" class="enfonsat" role="combobox" aria-expanded="false" aria-controls="llista" aria-autocomplete="list" placeholder="Ex.: Golf Mk7, MX-5, Clio…">
+            <button class="boto principal" id="envia" type="submit" disabled>Envia</button>
+          </div>
+          <ul class="llista relleu" id="llista" role="listbox" hidden></ul>
+          <p class="ajuda-camp" id="ajuda-camp">${CARS.length} cotxes a la base de dades.</p>
+        </form>
+        ${u.solo ? '' : xipsJugadors(u, true)}${avisViu()}
+      </section>`;
+      preparaCerca(enviaCotxe);
+      arrencaRellotge();
+      $('#cerca').focus({ preventScroll: true });
+      return lliga();
+    }
+    clearInterval(V.rellotge);
+    const quin = V.cotxe[u.round];
+    p.innerHTML = `<section class="tauler relleu">${cap}<ul class="criteris">${criteris}</ul>${u.solo ? '' : xipsJugadors(u, true)}</section>` +
+      esperaViu(quin ? `Has triat <strong>${esc(quin)}</strong>. ${u.solo ? 'El jutge compara les fitxes…' : totsHanTriat(u) ? 'Tothom ha triat: el jutge compara les fitxes…' : 'Esperant els altres…'}` : 'S’ha acabat el temps. El jutge compara les fitxes…', '', `${aturat}`);
+    return lliga();
+  }
+  // Veredicte: classificació de la ronda i graella de criteris entre tu i qui ha guanyat (o el segon, si guanyes tu)
+  const res = u.result || [];
+  const meu = res.find((e) => e.tag === V.tag) || { tag: V.tag, alias: me.alias, points: 0, car: null, rows: [] };
+  const max = res.length ? Math.max(...res.map((e) => e.points)) : 0;
+  const primers = res.filter((e) => e.points === max);
+  const altre = res.find((e) => e.tag !== V.tag && (meu.points === max ? true : e.points === max)) || null;
+  const ban = !meu.car && !res.some((e) => e.car) ? ['empat', 'Ningú no ha triat'] : meu.points === max && primers.length === 1 ? ['guanya', 'Guanyes la ronda'] : meu.points === max ? ['empat', u.solo ? 'Empat' : 'Empat al capdavant'] : ['perd', u.solo ? `Guanya el ${RIVAL_IA}` : `Guanya ${primers.map((e) => e.alias).join(' i ')}`];
+  const per = !meu.car ? 'No has triat cap cotxe a temps.' : meu.car && altre && altre.car && meu.car.key === altre.car.key ? 'Heu triat el mateix cotxe.' : meu.car && altre && altre.car && meu.hard !== altre.hard ? 'Només un dels dos compleix l’imprescindible.' : meu.car && altre && altre.car ? `Encaix: tu ${pts(meu.score)} %, ${altre.alias} ${pts(altre.score)} %.` : '';
+  const ST = (n) => n === null || n === undefined ? ['nd', '?'] : n >= 1 ? ['ok', '✓'] : n > 0 ? ['mig', '≈'] : ['no', '✗'];
+  const cela = (e, id, i) => {
+    const row = e && (e.rows || []).find((x) => x.id === id), s = ST(row ? row.n : null);
+    return `<div class="fitxa gira ${s[0]}" style="--d:${(i * 0.18).toFixed(2)}s"><span><b>${s[1]}</b>${esc(row && row.v ? row.v : 'sense dada')}</span></div>`;
+  };
+  const graella = meu.car || (altre && altre.car) ? `<div class="duel" role="table" aria-label="Comparació per criteris">
+      <span class="cap" role="columnheader">Criteri</span><span class="cap" role="columnheader">Tu</span><span class="cap" role="columnheader">${esc(altre ? (altre.tag === 'ia' ? 'IA' : altre.alias.slice(0, 8)) : '—')}</span>
+      ${((u.challenge && u.challenge.criteria) || []).map((k, i) => `<span class="etiqueta" role="cell">${esc(k.label)}${k.hard ? ' <span class="xip dur">Imp.</span>' : ''}</span>${meu.car ? cela(meu, k.id, i * 2) : '<div class="fitxa nd">—</div>'}${altre && altre.car ? cela(altre, k.id, i * 2 + 1) : '<div class="fitxa nd">—</div>'}`).join('')}
+    </div>` : '';
+  const classif = `<ol class="classificacio" aria-label="Classificació de la ronda">${res.map((e, i) => `<li class="enfonsat ${e.tag === V.tag ? 'jo' : ''}">
+      <span class="pos">${res.findIndex((x) => x.points === e.points) + 1}</span>
+      <span class="qui"><strong>${esc(e.alias)}</strong><small>${e.car ? esc(e.car.name) + (e.car.years ? ' · ' + esc(e.car.years) : '') : 'Sense cotxe'}${e.car ? ` · ${pts(e.score)} %${e.hard ? '' : ' · no compleix l’imprescindible'}` : ''}</small></span>
+      <span class="pts">+${fmtPunts(e.points)}</span></li>`).join('')}</ol>`;
   const final = u.status === 'finished';
+  const ordenats = [...(u.players || [])].sort((a, b) => b.points - a.points);
+  const guanyador = ordenats[0], empatats = ordenats.filter((x) => x.points === (guanyador ? guanyador.points : 0));
+  const resum = `<ol class="classificacio total" aria-label="Classificació general">${ordenats.map((x) => `<li class="enfonsat ${x.tag === V.tag ? 'jo' : ''}"><span class="pos">${ordenats.findIndex((y) => y.points === x.points) + 1}</span><span class="qui"><strong>${esc(x.alias)}</strong></span><span class="pts">${fmtPunts(total(x.tag))}</span></li>`).join('')}</ol>`;
+  const prox = Date.parse(u.next_at || '') - ara();
   const botons = final
-    ? `<div class="puntuacio"><div class="enfonsat"><span>${esc(jo.alias)}</span><b>${pts(jo.points)}</b></div><div class="enfonsat"><span>${RIVAL_IA}</span><b>${pts(ia.points)}</b></div></div>
-       <div class="banner ${jo.points > ia.points ? 'guanya' : jo.points < ia.points ? 'perd' : 'empat'}">${jo.points > ia.points ? 'Has guanyat la partida' : jo.points < ia.points ? `El ${RIVAL_IA} guanya la partida` : 'Partida empatada'}</div>
-       <button class="boto principal" id="nova" type="button">Nova partida</button>`
-    : pendent
-      ? `<div class="accions"><button class="boto principal" id="reverifica" type="button">Torna a comprovar</button><button class="boto" id="salta" type="button">Salta la ronda</button></div>`
-      : `<button class="boto principal" id="seguent" type="button">Ronda següent</button>`;
+    ? `<h3 class="subtitol">Classificació final</h3>${resum}
+       <div class="banner ${empatats.length > 1 ? 'empat' : guanyador && guanyador.tag === V.tag ? 'guanya' : 'perd'}">${empatats.length > 1 ? 'Partida empatada' : guanyador && guanyador.tag === V.tag ? 'Has guanyat la partida' : `${esc(guanyador ? guanyador.alias : '')} guanya la partida`}</div>
+       <button class="boto principal" id="inici" type="button">Nova partida</button>`
+    : `${u.solo ? '' : `<h3 class="subtitol">General</h3>${resum}`}
+       ${amfitrio ? '<button class="boto principal" id="seguent" type="button">Ronda següent</button>' : ''}
+       <p class="suau" id="compte">${prox > 0 ? `La ronda següent comença sola d’aquí a ${Math.ceil(prox / 1000)} s${amfitrio ? '' : ' (o quan l’amfitrió la passi)'}.` : 'Comença la ronda següent…'}</p>`;
   p.innerHTML = `<section class="tauler relleu">
     ${cap}
-    <div class="cotxes">
-      <div class="cotxe enfonsat"><small>${esc(jo.alias)}</small><strong>${esc(vj.car || 'Sense cotxe')}</strong></div>
-      <div class="cotxe enfonsat"><small>${RIVAL_IA}</small><strong>${esc(ve.car || '—')}</strong></div>
-    </div>
-    ${files ? `<div class="duel" role="table" aria-label="Comparació per criteris">
-      <span class="cap" role="columnheader">Criteri</span><span class="cap" role="columnheader">Tu</span><span class="cap" role="columnheader">IA</span>
-      ${(u.criteria || []).map(fila).join('')}
-    </div>` : ''}
     <div class="banner enfonsat ${ban[0]}">${ban[1]}<small>${esc(per)}</small></div>
-    ${avis()}${botons}${final ? '' : surt}
-  </section>${registre()}`;
-  const b = (id, fn) => { const el = $('#' + id); if (el) el.onclick = fn; };
-  b('seguent', () => { pintaViuEspera(`Preparo i comprovo el repte de la ronda ${u.round + 1}…`); ordre('/seguent', 12000); });
-  b('reverifica', () => { pintaViuEspera('Torno a comprovar les dades…'); ordre('/reverifica', 10000); });
-  b('salta', () => { ordre('/salta', 3000); });
-  b('nova', () => surtViu());
-  const focus = $('#seguent') || $('#nova') || $('#reverifica');
+    ${classif}
+    ${graella}
+    ${avisViu()}${botons}${final ? '' : aturat + surt}
+  </section>`;
+  b('seguent', () => { $('#seguent').disabled = true; demanaSeguent(u); });
+  const focus = $('#seguent') || $('#inici');
   if (focus) focus.focus({ preventScroll: true });
+  if (!final) {
+    // Compte enrere del pas automàtic
+    clearInterval(V.rellotge);
+    V.rellotge = setInterval(() => {
+      const el = $('#compte'), r = Date.parse(u.next_at || '') - ara();
+      if (!el || V.ui !== u) return clearInterval(V.rellotge);
+      el.textContent = r > 0 ? `La ronda següent comença sola d’aquí a ${Math.ceil(r / 1000)} s${amfitrio ? '' : ' (o quan l’amfitrió la passi)'}.` : 'Comença la ronda següent…';
+    }, 500);
+  }
   lliga();
 }
-function pintaViuEspera(text) {
-  $('#pantalla').innerHTML = `<section class="preparant relleu"><div class="semafor" aria-hidden="true"><i></i><i></i><i></i></div><p>${text}</p></section>`;
-}
 
+document.addEventListener('visibilitychange', () => { if (!document.hidden && V.sala && !V.aturat) programa(200); });
 $('#obre-ajuda').onclick = () => { const d = $('#ajuda'); if (d.showModal) d.showModal(); else d.setAttribute('open', ''); };
 $('#tanca-ajuda').onclick = () => { const d = $('#ajuda'); if (d.close) d.close(); else d.removeAttribute('open'); };
 $('#peu').innerHTML = DEMO
   ? `<span class="mode">Mode local</span> El rival i el jutge són locals, amb les dades de les fitxes. <a href="?">Juga en viu</a>`
-  : `<span class="mode viu">En viu</span> Reptes i veredictes fets a Make, amb fonts. ${CARS.length} cotxes a la base de dades. <a href="?demo">Mode local</a>`;
-if (!DEMO) carregaViu();
-if (!DEMO && V.chat && V.ui && V.ui.status === 'playing') { S.pas = 'viu'; pintaViu(); segueix(300); } else pinta();
+  : `<span class="mode viu">En viu</span> Reptes de la IA i jutge amb les fitxes, a Make. ${CARS.length} cotxes a la base de dades. <a href="?demo">Mode local</a>`;
+if (!DEMO) { carregaViu(); V.inici = Date.now(); V.ultimCanvi = Date.now(); if (V.sala) programa(200); pintaViu(); } else pinta();
 </script>
 
 </body>
